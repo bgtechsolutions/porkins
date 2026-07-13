@@ -68,3 +68,38 @@ export async function addContribution(formData: FormData) {
   revalidatePath("/caixinhas");
   revalidatePath("/dashboard");
 }
+
+export async function markProductBought(formData: FormData) {
+  const supabase = await createClient();
+  const id = String(formData.get("product_id") ?? "");
+  const real_value = Number(formData.get("real_value") ?? 0);
+  if (!id) return;
+  await supabase
+    .from("house_products")
+    .update({ status: "comprado", real_value })
+    .eq("id", id);
+  revalidatePath("/casa/compras");
+  revalidatePath("/dashboard");
+}
+
+export async function toggleBillPaid(formData: FormData) {
+  const supabase = await createClient();
+  const cost_id = String(formData.get("cost_id") ?? "");
+  const profile_id = String(formData.get("profile_id") ?? "");
+  const ym = String(formData.get("ym") ?? "");
+  const isPaid = String(formData.get("is_paid") ?? "") === "1";
+  if (!cost_id || !ym) return;
+
+  if (isPaid) {
+    await supabase
+      .from("house_bill_payments")
+      .delete()
+      .eq("cost_id", cost_id)
+      .eq("ym", ym);
+  } else {
+    await supabase
+      .from("house_bill_payments")
+      .insert({ cost_id, profile_id, ym });
+  }
+  revalidatePath("/casa/contas");
+}
