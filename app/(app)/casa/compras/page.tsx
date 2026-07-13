@@ -6,6 +6,9 @@ import CasaTabs from "../CasaTabs";
 export const dynamic = "force-dynamic";
 
 const MONTHS = ["Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+const MONTH_NUM: Record<string, number> = {
+  Junho: 6, Julho: 7, Agosto: 8, Setembro: 9, Outubro: 10, Novembro: 11, Dezembro: 12,
+};
 
 type Product = {
   id: string;
@@ -17,6 +20,7 @@ type Product = {
   budget_base: number | null;
   real_value: number | null;
   status: string;
+  _overdue?: boolean;
 };
 
 export default async function Compras() {
@@ -36,7 +40,16 @@ export default async function Compras() {
 
   const orcadoTotal = all.reduce((s, p) => s + Number(p.budget_base ?? 0), 0);
   const gastoTotal = all.reduce((s, p) => s + Number(p.real_value ?? 0), 0);
-  const semMes = pendentes.filter((p) => !p.planned_month || !MONTHS.includes(p.planned_month));
+
+  // Rollover: item com mês já passado "cai" no mês atual, marcado como atrasado.
+  const nowNum = new Date().getMonth() + 1;
+  const comMes = pendentes
+    .filter((p) => p.planned_month && MONTH_NUM[p.planned_month])
+    .map((p) => {
+      const itemNum = MONTH_NUM[p.planned_month as string];
+      return { p, eff: Math.max(itemNum, nowNum), overdue: itemNum < nowNum };
+    });
+  const semMes = pendentes.filter((p) => !p.planned_month || !MONTH_NUM[p.planned_month]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -48,10 +61,13 @@ export default async function Compras() {
         <div className="card"><p className="label">Faltam</p><p className="font-bold">{pendentes.length}</p></div>
       </div>
 
-      {MONTHS.map((m) => {
-        const items = pendentes.filter((p) => p.planned_month === m);
+      {MONTHS.filter((m) => MONTH_NUM[m] >= nowNum).map((m) => {
+        const items = comMes
+          .filter((x) => x.eff === MONTH_NUM[m])
+          .map((x) => ({ ...x.p, _overdue: x.overdue }));
         if (!items.length) return null;
-        return <MonthGroup key={m} title={m} items={items} />;
+        const isCurrent = MONTH_NUM[m] === nowNum;
+        return <MonthGroup key={m} title={isCurrent ? `${m} · este mês` : m} items={items} />;
       })}
       {semMes.length > 0 && (
         <MonthGroup title="Depende do imóvel / mais pra frente" items={semMes} />
@@ -85,7 +101,14 @@ function MonthGroup({ title, items }: { title: string; items: Product[] }) {
           <div key={p.id} className="border-b border-border pb-3 last:border-0 last:pb-0">
             <div className="flex justify-between items-start gap-2">
               <div>
-                <p className="font-medium text-sm">{p.name}</p>
+                <p className="font-medium text-sm">
+                  {p.name}
+                  {p._overdue && (
+                    <span className="ml-2 text-xs font-semibold text-amber-600">
+                      ↪ atrasado
+                    </span>
+                  )}
+                </p>
                 <p className="text-xs text-muted">
                   {p.category}
                   {p.ideal_qty ? ` · ${p.ideal_qty}` : ""}
