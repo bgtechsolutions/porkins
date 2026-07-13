@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getContext } from "@/lib/profiles";
 import { brl, pct } from "@/lib/format";
 
@@ -55,11 +56,11 @@ export default async function Dashboard() {
 
       {/* Renda / gasto */}
       <div className="grid grid-cols-2 gap-3">
-        {income > 0 && (
-          <div className="card">
-            <p className="label">Renda mensal</p>
+        {!isCasa && (
+          <Link href="/renda" className="card">
+            <p className="label">Renda mensal ✏️</p>
             <p className="text-xl font-bold">{brl(income)}</p>
-          </div>
+          </Link>
         )}
         <div className="card">
           <p className="label">Gastos do mês</p>

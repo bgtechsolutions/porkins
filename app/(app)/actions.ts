@@ -69,6 +69,36 @@ export async function addContribution(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
+export async function updateIncome(formData: FormData) {
+  const supabase = await createClient();
+  const id = String(formData.get("id") ?? "");
+  const amount = Number(formData.get("amount") ?? 0);
+  if (!id) return;
+  await supabase.from("income_sources").update({ amount }).eq("id", id);
+  revalidatePath("/renda");
+  revalidatePath("/dashboard");
+}
+
+export async function addIncome(formData: FormData) {
+  const supabase = await createClient();
+  const profile_id = String(formData.get("profile_id") ?? "");
+  const name = String(formData.get("name") ?? "").trim();
+  const amount = Number(formData.get("amount") ?? 0);
+  if (!profile_id || !name) return;
+  await supabase.from("income_sources").insert({ profile_id, name, amount, kind: "salario" });
+  revalidatePath("/renda");
+  revalidatePath("/dashboard");
+}
+
+export async function deleteIncome(formData: FormData) {
+  const supabase = await createClient();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  await supabase.from("income_sources").delete().eq("id", id);
+  revalidatePath("/renda");
+  revalidatePath("/dashboard");
+}
+
 export async function markProductBought(formData: FormData) {
   const supabase = await createClient();
   const id = String(formData.get("product_id") ?? "");
