@@ -15,10 +15,10 @@ const ACTIVE_COOKIE = "pk_profile";
 /** Contexto padrão de toda página autenticada: usuário, perfis e perfil ativo. */
 export async function getContext() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  // getClaims verifica o JWT localmente (sem ida à rede de auth)
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const claims = claimsData?.claims;
+  if (!claims) redirect("/login");
 
   const { data } = await supabase
     .from("profiles")
@@ -34,7 +34,7 @@ export async function getContext() {
   const active =
     profiles.find((p) => p.id === activeId) ?? profiles[0] ?? null;
 
-  return { supabase, user, profiles, active };
+  return { supabase, userId: claims.sub as string, profiles, active };
 }
 
 export { ACTIVE_COOKIE };
