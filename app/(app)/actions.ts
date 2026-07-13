@@ -99,6 +99,55 @@ export async function deleteIncome(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
+const PROFILE_PRESETS: Record<string, { obrigatoria: number; nao_obrig: number; investimento: number }> = {
+  // Tetos de despesa; investimento é o "pague-se primeiro" (pode passar).
+  razoavel: { obrigatoria: 0.6, nao_obrig: 0.3, investimento: 0.1 },
+  moderado: { obrigatoria: 0.55, nao_obrig: 0.25, investimento: 0.2 },
+  investidor: { obrigatoria: 0.5, nao_obrig: 0.2, investimento: 0.3 },
+};
+
+async function setBucket(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  profile_id: string,
+  bucket: string,
+  pct: number,
+) {
+  await supabase
+    .from("allocation_rules")
+    .update({ percentage: pct })
+    .eq("profile_id", profile_id)
+    .eq("bucket", bucket);
+}
+
+export async function setProfileType(formData: FormData) {
+  const supabase = await createClient();
+  const profile_id = String(formData.get("profile_id") ?? "");
+  const type = String(formData.get("type") ?? "razoavel");
+  const preset = PROFILE_PRESETS[type] ?? PROFILE_PRESETS.razoavel;
+  if (!profile_id) return;
+  await supabase.from("profiles").update({ profile_type: type }).eq("id", profile_id);
+  await setBucket(supabase, profile_id, "obrigatoria", preset.obrigatoria);
+  await setBucket(supabase, profile_id, "nao_obrig", preset.nao_obrig);
+  await setBucket(supabase, profile_id, "investimento", preset.investimento);
+  revalidatePath("/perfil");
+  revalidatePath("/dashboard");
+}
+
+export async function updateAllocations(formData: FormData) {
+  const supabase = await createClient();
+  const profile_id = String(formData.get("profile_id") ?? "");
+  if (!profile_id) return;
+  const o = Number(formData.get("obrigatoria") ?? 0) / 100;
+  const n = Number(formData.get("nao_obrig") ?? 0) / 100;
+  const i = Number(formData.get("investimento") ?? 0) / 100;
+  await supabase.from("profiles").update({ profile_type: "personalizado" }).eq("id", profile_id);
+  await setBucket(supabase, profile_id, "obrigatoria", o);
+  await setBucket(supabase, profile_id, "nao_obrig", n);
+  await setBucket(supabase, profile_id, "investimento", i);
+  revalidatePath("/perfil");
+  revalidatePath("/dashboard");
+}
+
 export async function markProductBought(formData: FormData) {
   const supabase = await createClient();
   const id = String(formData.get("product_id") ?? "");

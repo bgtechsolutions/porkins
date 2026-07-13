@@ -8,6 +8,7 @@ export type Profile = {
   type: "pessoal" | "compartilhado";
   color: string | null;
   monthly_income: number | null;
+  profile_type: string | null;
 };
 
 const ACTIVE_COOKIE = "pk_profile";
@@ -22,7 +23,7 @@ export async function getContext() {
 
   const { data } = await supabase
     .from("profiles")
-    .select("id,name,type,color,monthly_income");
+    .select("id,name,type,color,monthly_income,profile_type");
 
   // pessoal primeiro, Casa depois
   const profiles = ((data ?? []) as Profile[]).sort((a, b) =>
