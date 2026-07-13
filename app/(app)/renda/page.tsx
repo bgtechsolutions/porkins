@@ -38,9 +38,7 @@ export default async function Renda() {
               <input type="hidden" name="id" value={s.id} />
               <input
                 name="amount"
-                type="number"
-                step="0.01"
-                min="0"
+                type="text"
                 defaultValue={Number(s.amount)}
                 className="input !w-28 text-right"
                 inputMode="decimal"
@@ -64,7 +62,7 @@ export default async function Renda() {
           <input type="hidden" name="profile_id" value={active.id} />
           <input name="name" type="text" required className="input" placeholder="Ex.: Salário, Freela, Vale..." />
           <div className="flex gap-2">
-            <input name="amount" type="number" step="0.01" min="0" className="input" placeholder="Valor (R$)" inputMode="decimal" />
+            <input name="amount" type="text" className="input" placeholder="Valor (R$)" inputMode="decimal" />
             <button className="btn whitespace-nowrap">Adicionar</button>
           </div>
         </form>

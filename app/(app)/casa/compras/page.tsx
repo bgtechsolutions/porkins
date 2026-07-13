@@ -122,9 +122,7 @@ function MonthGroup({ title, items }: { title: string; items: Product[] }) {
               <input type="hidden" name="product_id" value={p.id} />
               <input
                 name="real_value"
-                type="number"
-                step="0.01"
-                min="0"
+                type="text"
                 className="input"
                 placeholder={p.budget_base ? `Paguei (orçado ${brl(p.budget_base)})` : "Quanto paguei"}
                 inputMode="decimal"

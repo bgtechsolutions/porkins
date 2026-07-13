@@ -23,7 +23,7 @@ export default async function NovaTransacao() {
 
         <div>
           <label className="label" htmlFor="amount">Valor (R$)</label>
-          <input id="amount" name="amount" type="number" step="0.01" min="0" required
+          <input id="amount" name="amount" type="text" required
             inputMode="decimal" className="input" placeholder="0,00" autoFocus />
         </div>
 

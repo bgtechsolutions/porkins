@@ -50,9 +50,10 @@ export default async function AppLayout({
 
       {/* Navegação inferior */}
       <nav className="fixed bottom-0 inset-x-0 border-t border-border bg-surface">
-        <div className="mx-auto max-w-lg grid grid-cols-4">
+        <div className="mx-auto max-w-lg grid grid-cols-5">
           <NavLink href="/dashboard" icon="📊" label="Resumo" />
           <NavLink href="/nova" icon="➕" label="Lançar" />
+          <NavLink href="/extrato" icon="📋" label="Extrato" />
           <NavLink href="/caixinhas" icon="🐖" label="Caixinhas" />
           <NavLink href="/casa/compras" icon="🏡" label="Casa" />
         </div>

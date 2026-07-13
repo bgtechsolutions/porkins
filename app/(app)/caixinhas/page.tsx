@@ -1,5 +1,5 @@
 import { getContext } from "@/lib/profiles";
-import { brl, pct } from "@/lib/format";
+import { brl, pct, parseBRL } from "@/lib/format";
 import { addContribution } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export default async function Caixinhas({
   if (!active) return <p className="text-muted">Nenhum perfil.</p>;
 
   const { disp } = await searchParams;
-  const disponivel = disp ? Number(disp) : 0;
+  const disponivel = disp ? parseBRL(disp) : 0;
 
   const { data: goals } = await supabase
     .from("v_goal_progress")
@@ -50,9 +50,7 @@ export default async function Caixinhas({
           <input
             id="disp"
             name="disp"
-            type="number"
-            step="0.01"
-            min="0"
+            type="text"
             defaultValue={disp ?? ""}
             className="input"
             placeholder="Ex.: 718,50"
@@ -113,9 +111,7 @@ export default async function Caixinhas({
                 <input type="hidden" name="profile_id" value={active.id} />
                 <input
                   name="amount"
-                  type="number"
-                  step="0.01"
-                  min="0"
+                  type="text"
                   className="input"
                   placeholder={sug > 0 ? String(sug) : "Registrar aporte"}
                   inputMode="decimal"

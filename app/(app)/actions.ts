@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ACTIVE_COOKIE } from "@/lib/profiles";
+import { parseBRL } from "@/lib/format";
 
 export async function switchProfile(formData: FormData) {
   const id = String(formData.get("profileId") ?? "");
@@ -23,7 +24,7 @@ export async function logout() {
 export async function addTransaction(formData: FormData) {
   const supabase = await createClient();
   const profile_id = String(formData.get("profile_id") ?? "");
-  const amount = Number(formData.get("amount") ?? 0);
+  const amount = parseBRL(formData.get("amount"));
   const description = String(formData.get("description") ?? "").trim() || null;
   const category_id = String(formData.get("category_id") ?? "") || null;
   const account_id = String(formData.get("account_id") ?? "") || null;
@@ -46,11 +47,39 @@ export async function addTransaction(formData: FormData) {
   redirect("/dashboard");
 }
 
+export async function updateTransaction(formData: FormData) {
+  const supabase = await createClient();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  const category_id = String(formData.get("category_id") ?? "") || null;
+  await supabase
+    .from("transactions")
+    .update({
+      amount: parseBRL(formData.get("amount")),
+      description: String(formData.get("description") ?? "").trim() || null,
+      category_id,
+      occurred_at: String(formData.get("occurred_at") ?? "") || undefined,
+      needs_review: !category_id,
+    })
+    .eq("id", id);
+  revalidatePath("/extrato");
+  revalidatePath("/dashboard");
+}
+
+export async function deleteTransaction(formData: FormData) {
+  const supabase = await createClient();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  await supabase.from("transactions").delete().eq("id", id);
+  revalidatePath("/extrato");
+  revalidatePath("/dashboard");
+}
+
 export async function addContribution(formData: FormData) {
   const supabase = await createClient();
   const goal_id = String(formData.get("goal_id") ?? "");
   const profile_id = String(formData.get("profile_id") ?? "");
-  const amount = Number(formData.get("amount") ?? 0);
+  const amount = parseBRL(formData.get("amount"));
   if (!goal_id || !amount) return;
 
   const { data: goal } = await supabase
@@ -72,7 +101,7 @@ export async function addContribution(formData: FormData) {
 export async function updateIncome(formData: FormData) {
   const supabase = await createClient();
   const id = String(formData.get("id") ?? "");
-  const amount = Number(formData.get("amount") ?? 0);
+  const amount = parseBRL(formData.get("amount"));
   if (!id) return;
   await supabase.from("income_sources").update({ amount }).eq("id", id);
   revalidatePath("/renda");
@@ -83,7 +112,7 @@ export async function addIncome(formData: FormData) {
   const supabase = await createClient();
   const profile_id = String(formData.get("profile_id") ?? "");
   const name = String(formData.get("name") ?? "").trim();
-  const amount = Number(formData.get("amount") ?? 0);
+  const amount = parseBRL(formData.get("amount"));
   if (!profile_id || !name) return;
   await supabase.from("income_sources").insert({ profile_id, name, amount, kind: "salario" });
   revalidatePath("/renda");
@@ -151,7 +180,7 @@ export async function updateAllocations(formData: FormData) {
 export async function markProductBought(formData: FormData) {
   const supabase = await createClient();
   const id = String(formData.get("product_id") ?? "");
-  const real_value = Number(formData.get("real_value") ?? 0);
+  const real_value = parseBRL(formData.get("real_value"));
   if (!id) return;
   await supabase
     .from("house_products")

@@ -76,11 +76,11 @@ export default async function Dashboard() {
             <p className="text-xl font-bold">{brl(income)}</p>
           </Link>
         )}
-        <div className="card">
-          <p className="label">Gastos do mês</p>
+        <Link href="/extrato" className="card">
+          <p className="label">Gastos do mês 📋</p>
           <p className="text-xl font-bold">{brl(spent)}</p>
           {income > 0 && <p className="text-xs text-muted mt-1">{pct(spent / income)} da renda</p>}
-        </div>
+        </Link>
       </div>
 
       {/* Regra 60/30/10 */}
