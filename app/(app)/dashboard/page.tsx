@@ -32,7 +32,7 @@ export default async function Dashboard() {
     const [{ data: r }, { data: contribs }, { data: txns }] = await Promise.all([
       supabase.from("allocation_rules").select("bucket,percentage").eq("profile_id", active.id),
       supabase.from("contributions").select("amount").eq("profile_id", active.id).gte("contributed_at", firstOfMonth),
-      supabase.from("transactions").select("amount, categoria:categories(name)").eq("profile_id", active.id).gte("occurred_at", firstOfMonth),
+      supabase.from("transactions").select("amount, categoria:categories(name)").eq("profile_id", active.id).eq("transaction_type", "expense").gte("occurred_at", firstOfMonth),
     ]);
     rules = (r ?? []) as { bucket: string; percentage: number }[];
     investMonth = (contribs ?? []).reduce((s, c) => s + Number(c.amount), 0);

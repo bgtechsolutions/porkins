@@ -13,6 +13,12 @@ import { renewGmailWatch, syncGmailConnection } from "@/lib/gmail/sync";
 import type { GmailConnection } from "@/lib/gmail/google";
 
 type AppSupabase = Awaited<ReturnType<typeof createClient>>;
+const TRANSACTION_TYPES = ["expense", "income", "transfer_out", "transfer_in", "card_payment"] as const;
+
+function transactionType(value: FormDataEntryValue | null) {
+  const type = String(value ?? "expense");
+  return TRANSACTION_TYPES.includes(type as (typeof TRANSACTION_TYPES)[number]) ? type : "expense";
+}
 
 function fail(message: string): never {
   throw new Error(message);
@@ -58,26 +64,32 @@ export async function logout() {
 export async function addTransaction(formData: FormData) {
   const profile_id = String(formData.get("profile_id") ?? "");
   const supabase = await requireProfile(profile_id);
+  const { userId } = await getContext();
   const amount = parseBRL(formData.get("amount"));
   if (amount <= 0) fail("Informe um valor maior que zero.");
   const description = String(formData.get("description") ?? "").trim() || null;
   const category_id = String(formData.get("category_id") ?? "") || null;
   const account_id = String(formData.get("account_id") ?? "") || null;
+  const txnType = transactionType(formData.get("transaction_type"));
   const occurred_at =
     String(formData.get("occurred_at") ?? "") ||
     new Date().toISOString().slice(0, 10);
 
-  const { error } = await supabase.from("transactions").insert({
+  const { data: transaction, error } = await supabase.from("transactions").insert({
     profile_id,
     amount,
     description,
     category_id,
     account_id,
+    transaction_type: txnType,
     occurred_at,
     source: "manual",
-    needs_review: !category_id,
-  });
+    paid_by_user_id: userId,
+    needs_review: txnType === "expense" && !category_id,
+  }).select("id").single();
   check(error, "Não foi possível salvar o gasto");
+  if (!transaction) fail("O lançamento não foi retornado após ser salvo.");
+  await saveTransactionSplit(supabase, transaction.id, profile_id, userId, amount, formData);
 
   revalidatePath("/dashboard");
   redirect("/dashboard");
@@ -87,18 +99,71 @@ export async function updateTransaction(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   const supabase = await requireOwnedRow("transactions", id);
+  const { userId } = await getContext();
+  const { data: ownedTransaction, error: ownedError } = await supabase
+    .from("transactions").select("profile_id,paid_by_user_id").eq("id", id).single();
+  check(ownedError, "Não foi possível validar o lançamento");
+  if (!ownedTransaction) fail("Lançamento não encontrado.");
   const category_id = String(formData.get("category_id") ?? "") || null;
+  const txnType = transactionType(formData.get("transaction_type"));
   const { error } = await supabase
     .from("transactions")
     .update({
       amount: parseBRL(formData.get("amount")),
       description: String(formData.get("description") ?? "").trim() || null,
       category_id,
+      transaction_type: txnType,
       occurred_at: String(formData.get("occurred_at") ?? "") || undefined,
-      needs_review: !category_id,
+      needs_review: txnType === "expense" && !category_id,
     })
     .eq("id", id);
   check(error, "Não foi possível atualizar o lançamento");
+  const { error: clearSplitError } = await supabase.from("transaction_splits").delete().eq("transaction_id", id);
+  check(clearSplitError, "Não foi possível atualizar a divisão");
+  await saveTransactionSplit(
+    supabase, id, ownedTransaction.profile_id, ownedTransaction.paid_by_user_id ?? userId,
+    parseBRL(formData.get("amount")), formData,
+  );
+  revalidatePath("/extrato");
+  revalidatePath("/dashboard");
+}
+
+async function saveTransactionSplit(
+  supabase: AppSupabase,
+  transactionId: string,
+  profileId: string,
+  payerUserId: string,
+  totalAmount: number,
+  formData: FormData,
+) {
+  const debtorUserId = String(formData.get("debtor_user_id") ?? "");
+  const splitAmount = parseBRL(formData.get("split_amount"));
+  if (!debtorUserId && splitAmount <= 0) return;
+  if (!debtorUserId || splitAmount <= 0) fail("Escolha a pessoa e informe quanto ela deve pagar.");
+  if (debtorUserId === payerUserId) fail("Escolha outro membro para dividir o gasto.");
+  if (splitAmount > totalAmount) fail("A parte da outra pessoa não pode ser maior que o total.");
+  const { data: member } = await supabase.from("profile_members")
+    .select("user_id").eq("profile_id", profileId).eq("user_id", debtorUserId).maybeSingle();
+  if (!member) fail("A pessoa escolhida não faz parte deste espaço.");
+  const { error } = await supabase.from("transaction_splits").insert({
+    transaction_id: transactionId,
+    profile_id: profileId,
+    debtor_user_id: debtorUserId,
+    amount: splitAmount,
+    status: "pending",
+  });
+  check(error, "Não foi possível dividir o lançamento");
+}
+
+export async function markTransactionSplitPaid(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  const status = String(formData.get("status") ?? "paid") === "pending" ? "pending" : "paid";
+  const { supabase } = await getContext();
+  const { error } = await supabase.from("transaction_splits").update({
+    status,
+    settled_at: status === "paid" ? new Date().toISOString() : null,
+  }).eq("id", id);
+  check(error, "Não foi possível atualizar o acerto");
   revalidatePath("/extrato");
   revalidatePath("/dashboard");
 }
@@ -419,13 +484,13 @@ export async function changePassword(formData: FormData) {
 }
 
 export async function connectGmail() {
-  const { supabase } = await getContext();
+  const { supabase, active } = await getContext();
   const headerStore = await headers();
   const origin = process.env.NEXT_PUBLIC_SITE_URL ?? headerStore.get("origin") ?? "http://localhost:3000";
   const { data, error } = await supabase.auth.linkIdentity({
     provider: "google",
     options: {
-      redirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/perfil?gmail=connected")}`,
+      redirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/perfil?gmail=connected")}&profile=${encodeURIComponent(active?.id ?? "")}`,
       scopes: GOOGLE_SCOPES,
       queryParams: { access_type: "offline", prompt: "consent", include_granted_scopes: "true" },
     },
@@ -445,4 +510,114 @@ export async function syncGmailNow() {
   revalidatePath("/extrato");
   revalidatePath("/dashboard");
   redirect("/perfil?gmail=synced");
+}
+
+export async function reprocessGmailNow() {
+  const { userId } = await getContext();
+  const admin = createAdminClient();
+  const [{ data: connection, error }, { data: imports }] = await Promise.all([
+    admin.from("gmail_connections").select("*").eq("user_id", userId).single(),
+    admin.from("email_imports").select("transaction_id").eq("user_id", userId),
+  ]);
+  check(error, "Gmail ainda não conectado");
+  const transactionIds = (imports ?? []).map((item) => item.transaction_id).filter(Boolean) as string[];
+  if (transactionIds.length) {
+    const { error: deleteTransactionsError } = await admin.from("transactions").delete().in("id", transactionIds);
+    check(deleteTransactionsError, "Não foi possível remover os lançamentos antigos");
+  }
+  const { error: deleteImportsError } = await admin.from("email_imports").delete().eq("user_id", userId);
+  check(deleteImportsError, "Não foi possível preparar a releitura dos e-mails");
+  await renewGmailWatch(connection as GmailConnection);
+  await syncGmailConnection(connection as GmailConnection);
+  revalidatePath("/perfil");
+  revalidatePath("/extrato");
+  revalidatePath("/dashboard");
+  redirect("/perfil?gmail=reprocessed");
+}
+
+export async function createFinancialSpace(formData: FormData) {
+  const { supabase } = await getContext();
+  const name = String(formData.get("name") ?? "").trim();
+  const contextType = String(formData.get("context_type") ?? "household");
+  if (!name) fail("Informe o nome do espaço.");
+  const { data, error } = await supabase.rpc("fn_create_profile", {
+    p_name: name,
+    p_context_type: contextType,
+    p_color: String(formData.get("color") ?? "#7c3aed"),
+  });
+  check(error, "Não foi possível criar o espaço");
+  if (data) {
+    const cookieStore = await cookies();
+    cookieStore.set(ACTIVE_COOKIE, String(data), { path: "/", maxAge: 60 * 60 * 24 * 365 });
+  }
+  revalidatePath("/perfil");
+  redirect("/perfil?secao=espacos&espaco=created");
+}
+
+export async function inviteProfileMember(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const supabase = await requireProfile(profileId);
+  if (!email) fail("Informe o e-mail do novo membro.");
+  const { data, error } = await supabase.rpc("fn_invite_profile_member", {
+    p_profile_id: profileId,
+    p_email: email,
+  });
+  check(error, "Não foi possível adicionar o membro");
+  revalidatePath("/perfil");
+  redirect(`/perfil?secao=espacos&membro=${data === "added" ? "added" : "invited"}`);
+}
+
+export async function addFinancialAccount(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) fail("Informe o nome da conta.");
+  const aliases = String(formData.get("email_aliases") ?? "")
+    .split(",").map((value) => value.trim()).filter(Boolean);
+  const { error } = await supabase.from("accounts").insert({
+    profile_id: profileId,
+    name,
+    kind: String(formData.get("kind") ?? "conta"),
+    institution: String(formData.get("institution") ?? "").trim() || null,
+    ownership: String(formData.get("ownership") ?? "personal"),
+    email_aliases: aliases,
+  });
+  check(error, "Não foi possível adicionar a conta");
+  revalidatePath("/perfil");
+  redirect("/perfil?secao=espacos&conta=created");
+}
+
+export async function saveGmailRoute(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const { userId } = await getContext();
+  const supabase = await requireProfile(profileId);
+  const isDefault = String(formData.get("is_default") ?? "") === "1";
+  const matchLabel = isDefault ? "*" : String(formData.get("match_label") ?? "").trim();
+  if (!matchLabel) fail("Informe como a conta aparece no e-mail.");
+  if (isDefault) {
+    const { error } = await supabase.from("gmail_import_routes").update({ is_default: false }).eq("user_id", userId);
+    check(error, "Não foi possível alterar a rota padrão");
+  }
+  const { error } = await supabase.from("gmail_import_routes").upsert({
+    user_id: userId,
+    profile_id: profileId,
+    account_id: String(formData.get("account_id") ?? "") || null,
+    match_label: matchLabel,
+    is_default: isDefault,
+    priority: Number(formData.get("priority") ?? 100),
+    active: true,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "user_id,profile_id,match_label" });
+  check(error, "Não foi possível salvar a regra de importação");
+  revalidatePath("/perfil");
+  redirect("/perfil?secao=espacos&rota=saved");
+}
+
+export async function deleteGmailRoute(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  const { userId, supabase } = await getContext();
+  const { error } = await supabase.from("gmail_import_routes").delete().eq("id", id).eq("user_id", userId);
+  check(error, "Não foi possível excluir a regra");
+  revalidatePath("/perfil");
 }
