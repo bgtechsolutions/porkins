@@ -3,7 +3,14 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Porkin",
-  description: "Controle financeiro do Gabriel, da Bárbara e da Casa",
+  description: "Controle financeiro pessoal, compartilhado e automático",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#f4f5f7",
 };
 
 export const viewport: Viewport = {

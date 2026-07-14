@@ -8,7 +8,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         <div className="text-center mb-8">
           <div className="text-5xl mb-2">🐷</div>
           <h1 className="text-2xl font-bold">Porkin</h1>
-          <p className="text-muted text-sm mt-1">Controle financeiro do Gabriel, da Bárbara e da Casa</p>
+          <p className="text-muted text-sm mt-1">Sua vida financeira, pessoal ou compartilhada, em um só lugar</p>
         </div>
 
         <div className="card flex flex-col gap-4">
