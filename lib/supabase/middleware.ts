@@ -30,7 +30,13 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const isPublic = path === "/" || path.startsWith("/login");
+  const publicPaths = new Set([
+    "/auth/callback",
+    "/api/gmail/push",
+    "/api/gmail/renew",
+  ]);
+  const isPublic =
+    path === "/" || path.startsWith("/login") || publicPaths.has(path);
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
