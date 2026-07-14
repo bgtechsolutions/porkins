@@ -1,6 +1,7 @@
 -- ============================================================================
--- Migration 07: Usuários de login (já confirmados) e vínculo com os perfis
--- Senha temporária: Porkin@2026  (trocar depois pela tela de conta)
+-- Migration 07: vínculo de usuários já criados no Supabase Auth com os perfis.
+-- As contas e senhas devem ser criadas pelo painel/API administrativa do Auth;
+-- credenciais nunca devem ser armazenadas em migrations ou no Git.
 -- gabriel@porkin.app -> perfil Gabriel + Casa
 -- barbara@porkin.app -> perfil Bárbara + Casa
 -- ============================================================================
@@ -11,43 +12,14 @@ begin
   select id into bp from profiles where name = 'Bárbara';
   select id into cp from profiles where name = 'Casa';
 
-  -- ----- Gabriel -----
-  gu := gen_random_uuid();
-  insert into auth.users (
-    instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-    created_at, updated_at, raw_app_meta_data, raw_user_meta_data, is_super_admin,
-    confirmation_token, recovery_token, email_change, email_change_token_new
-  ) values (
-    '00000000-0000-0000-0000-000000000000', gu, 'authenticated', 'authenticated',
-    'gabriel@porkin.app', extensions.crypt('Porkin@2026', extensions.gen_salt('bf')), now(),
-    now(), now(), '{"provider":"email","providers":["email"]}', '{"name":"Gabriel"}', false,
-    '', '', '', ''
-  );
-  insert into auth.identities (
-    id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at
-  ) values (
-    gen_random_uuid(), gu, jsonb_build_object('sub', gu::text, 'email', 'gabriel@porkin.app'),
-    'email', 'gabriel@porkin.app', now(), now(), now()
-  );
-  insert into profile_members (profile_id, user_id, role) values (gp, gu, 'owner'), (cp, gu, 'owner');
+  select id into gu from auth.users where lower(email) = 'gabriel@porkin.app';
+  select id into bu from auth.users where lower(email) = 'barbara@porkin.app';
 
-  -- ----- Bárbara -----
-  bu := gen_random_uuid();
-  insert into auth.users (
-    instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
-    created_at, updated_at, raw_app_meta_data, raw_user_meta_data, is_super_admin,
-    confirmation_token, recovery_token, email_change, email_change_token_new
-  ) values (
-    '00000000-0000-0000-0000-000000000000', bu, 'authenticated', 'authenticated',
-    'barbara@porkin.app', extensions.crypt('Porkin@2026', extensions.gen_salt('bf')), now(),
-    now(), now(), '{"provider":"email","providers":["email"]}', '{"name":"Bárbara"}', false,
-    '', '', '', ''
-  );
-  insert into auth.identities (
-    id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at
-  ) values (
-    gen_random_uuid(), bu, jsonb_build_object('sub', bu::text, 'email', 'barbara@porkin.app'),
-    'email', 'barbara@porkin.app', now(), now(), now()
-  );
-  insert into profile_members (profile_id, user_id, role) values (bp, bu, 'owner'), (cp, bu, 'owner');
+  if gu is null or bu is null then
+    raise exception 'Crie gabriel@porkin.app e barbara@porkin.app no Supabase Auth antes desta migration';
+  end if;
+
+  insert into profile_members (profile_id, user_id, role)
+  values (gp, gu, 'owner'), (cp, gu, 'owner'), (bp, bu, 'owner'), (cp, bu, 'owner')
+  on conflict (profile_id, user_id) do nothing;
 end $$;

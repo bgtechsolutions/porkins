@@ -1,6 +1,6 @@
 import { getContext } from "@/lib/profiles";
 import { brl } from "@/lib/format";
-import { toggleBillPaid } from "../../actions";
+import { addHouseCost, deleteHouseCost, toggleBillPaid } from "../../actions";
 import CasaTabs from "../CasaTabs";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +42,23 @@ export default async function Contas() {
   return (
     <div className="flex flex-col gap-4">
       <CasaTabs active="contas" />
+
+      <details className="card">
+        <summary className="font-semibold cursor-pointer">＋ Adicionar conta ou custo</summary>
+        <form action={addHouseCost} className="flex flex-col gap-2 mt-3">
+          <input type="hidden" name="profile_id" value={casa.id} />
+          <input name="name" required className="input" placeholder="Nome do custo" />
+          <div className="grid grid-cols-2 gap-2">
+            <select name="cost_type" defaultValue="recorrente" className="input">
+              <option value="recorrente">Conta recorrente</option><option value="entrada">Custo de entrada</option>
+            </select>
+            <input name="expected_value" required inputMode="decimal" className="input" placeholder="Valor previsto" />
+            <input name="barbara_pct" type="number" min="0" max="100" step="0.01" defaultValue="63.41" className="input" aria-label="Percentual da Bárbara" />
+            <input name="buy_when" className="input" placeholder="Quando comprar/pagar" />
+          </div>
+          <button className="btn">Adicionar custo</button>
+        </form>
+      </details>
 
       <div className="card">
         <p className="label">Custo mensal previsto</p>
@@ -90,6 +107,7 @@ export default async function Contas() {
                   >
                     {paid ? "Pago ✓" : "Pagar"}
                   </button>
+                  <button formAction={deleteHouseCost} name="id" value={c.id} className="text-xs text-red-600" title="Excluir custo">×</button>
                 </div>
               </form>
             );
@@ -109,7 +127,10 @@ export default async function Contas() {
                 <p>{c.name}</p>
                 <p className="text-xs text-muted">{c.buy_when}</p>
               </div>
-              <span className="font-semibold whitespace-nowrap">{brl(c.expected_value)}</span>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold whitespace-nowrap">{brl(c.expected_value)}</span>
+                <form action={deleteHouseCost}><button name="id" value={c.id} className="text-red-600" title="Excluir custo">×</button></form>
+              </div>
             </div>
           ))}
         </div>

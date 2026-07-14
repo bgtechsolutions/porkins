@@ -1,6 +1,6 @@
 import { getContext } from "@/lib/profiles";
 import { brl, pct, parseBRL } from "@/lib/format";
-import { addContribution } from "../actions";
+import { addContribution, addGoal, deleteGoal, updateGoal } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +40,25 @@ export default async function Caixinhas({
   return (
     <div className="flex flex-col gap-4">
       <h2 className="text-lg font-bold">Caixinhas — {active.name}</h2>
+
+      <details className="card">
+        <summary className="font-semibold cursor-pointer">＋ Nova caixinha</summary>
+        <form action={addGoal} className="flex flex-col gap-2 mt-3">
+          <input type="hidden" name="profile_id" value={active.id} />
+          <input name="name" required className="input" placeholder="Nome da meta" />
+          <div className="grid grid-cols-2 gap-2">
+            <input name="target_amount" required inputMode="decimal" className="input" placeholder="Valor da meta" />
+            <input name="deadline" type="date" className="input" />
+            <select name="priority" defaultValue="media" className="input">
+              <option value="alta">Prioridade alta</option><option value="media">Prioridade média</option><option value="baixa">Prioridade baixa</option>
+            </select>
+            <select name="kind" defaultValue="curto_prazo" className="input">
+              <option value="reserva">Reserva</option><option value="curto_prazo">Curto prazo</option><option value="medio_prazo">Médio prazo</option><option value="longo_prazo">Longo prazo</option>
+            </select>
+          </div>
+          <button className="btn">Criar caixinha</button>
+        </form>
+      </details>
 
       {/* Sugestão de aporte */}
       <form method="get" className="card flex flex-col gap-3">
@@ -108,7 +127,6 @@ export default async function Caixinhas({
               {/* Registrar aporte */}
               <form action={addContribution} className="flex gap-2 mt-3">
                 <input type="hidden" name="goal_id" value={g.id} />
-                <input type="hidden" name="profile_id" value={active.id} />
                 <input
                   name="amount"
                   type="text"
@@ -120,6 +138,33 @@ export default async function Caixinhas({
                   Aportar
                 </button>
               </form>
+
+              <details className="mt-3 border-t border-border pt-2">
+                <summary className="text-xs text-muted cursor-pointer">Editar caixinha</summary>
+                <form action={updateGoal} className="flex flex-col gap-2 mt-2">
+                  <input type="hidden" name="id" value={g.id} />
+                  <input name="name" required defaultValue={g.name} className="input" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input name="target_amount" inputMode="decimal" required defaultValue={Number(g.target_amount)} className="input" />
+                    <input value={`Saldo: ${brl(g.current_amount)}`} readOnly className="input text-muted" aria-label="Saldo atual, alterado somente por aportes" />
+                    <input name="deadline" type="date" defaultValue={g.deadline ?? ""} className="input" />
+                    <select name="priority" defaultValue={g.priority} className="input">
+                      <option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option>
+                    </select>
+                    <select name="kind" defaultValue={g.kind} className="input">
+                      <option value="reserva">Reserva</option><option value="curto_prazo">Curto prazo</option><option value="medio_prazo">Médio prazo</option><option value="longo_prazo">Longo prazo</option>
+                    </select>
+                    <select name="status" defaultValue={g.status} className="input">
+                      <option value="em_andamento">Em andamento</option><option value="pausada">Pausada</option><option value="concluida">Concluída</option>
+                    </select>
+                  </div>
+                  <button className="btn">Salvar alterações</button>
+                </form>
+                <form action={deleteGoal} className="mt-2">
+                  <input type="hidden" name="id" value={g.id} />
+                  <button className="w-full py-2 text-sm font-semibold text-red-600 border border-red-200 rounded-lg">Excluir caixinha e aportes</button>
+                </form>
+              </details>
             </div>
           );
         })}
