@@ -3,7 +3,7 @@ import { login, loginWithGoogle } from "./actions";
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ erro?: string }> }) {
   const { erro } = await searchParams;
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center p-6">
+    <main id="main-content" tabIndex={-1} className="min-h-screen flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <div className="text-5xl mb-2">🐷</div>
@@ -32,7 +32,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
               <button type="submit" className="btn">Entrar uma última vez com senha</button>
             </form>
           </details>
-          {erro && <p className="text-sm text-red-500 font-medium">{erro}</p>}
+          {erro && <p className="status-danger" role="alert">{erro}</p>}
         </div>
       </div>
     </main>

@@ -45,14 +45,14 @@ export default async function Caixinhas({
         <summary className="font-semibold cursor-pointer">＋ Nova caixinha</summary>
         <form action={addGoal} className="flex flex-col gap-2 mt-3">
           <input type="hidden" name="profile_id" value={active.id} />
-          <input name="name" required className="input" placeholder="Nome da meta" />
+          <input name="name" required className="input" placeholder="Nome da meta" aria-label="Nome da meta" />
           <div className="grid grid-cols-2 gap-2">
-            <input name="target_amount" required inputMode="decimal" className="input" placeholder="Valor da meta" />
-            <input name="deadline" type="date" className="input" />
-            <select name="priority" defaultValue="media" className="input">
+            <input name="target_amount" required inputMode="decimal" className="input" placeholder="Valor da meta" aria-label="Valor da meta" />
+            <input name="deadline" type="date" className="input" aria-label="Prazo da meta" />
+            <select name="priority" defaultValue="media" className="input" aria-label="Prioridade da meta">
               <option value="alta">Prioridade alta</option><option value="media">Prioridade média</option><option value="baixa">Prioridade baixa</option>
             </select>
-            <select name="kind" defaultValue="curto_prazo" className="input">
+            <select name="kind" defaultValue="curto_prazo" className="input" aria-label="Tipo da meta">
               <option value="reserva">Reserva</option><option value="curto_prazo">Curto prazo</option><option value="medio_prazo">Médio prazo</option><option value="longo_prazo">Longo prazo</option>
             </select>
           </div>
@@ -105,11 +105,18 @@ export default async function Caixinhas({
                 <span className="text-sm text-muted">{pct(g.progresso)}</span>
               </div>
 
-              <div className="bar mb-1">
+              <div
+                className="bar mb-1"
+                role="progressbar"
+                aria-label={`Progresso de ${g.name}`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.min(Math.round(Number(g.progresso) * 100), 100)}
+              >
                 <span
                   style={{
                     width: `${Math.min(Number(g.progresso) * 100, 100)}%`,
-                    background: active.color ?? "var(--color-brand)",
+                    background: active.color ?? "var(--brand-solid)",
                   }}
                 />
               </div>
@@ -119,7 +126,7 @@ export default async function Caixinhas({
               </div>
 
               {sug > 0 && (
-                <div className="mt-2 text-sm rounded-lg px-3 py-2" style={{ background: "color-mix(in srgb, var(--color-brand) 12%, transparent)" }}>
+                <div className="mt-2 status-warning">
                   💡 Sugestão de aporte: <strong>{brl(sug)}</strong>
                 </div>
               )}
@@ -133,6 +140,7 @@ export default async function Caixinhas({
                   className="input"
                   placeholder={sug > 0 ? String(sug) : "Registrar aporte"}
                   inputMode="decimal"
+                  aria-label={`Valor do aporte para ${g.name}`}
                 />
                 <button type="submit" className="btn whitespace-nowrap">
                   Aportar
@@ -143,18 +151,18 @@ export default async function Caixinhas({
                 <summary className="text-xs text-muted cursor-pointer">Editar caixinha</summary>
                 <form action={updateGoal} className="flex flex-col gap-2 mt-2">
                   <input type="hidden" name="id" value={g.id} />
-                  <input name="name" required defaultValue={g.name} className="input" />
+                  <input name="name" required defaultValue={g.name} className="input" aria-label={`Nome da meta ${g.name}`} />
                   <div className="grid grid-cols-2 gap-2">
-                    <input name="target_amount" inputMode="decimal" required defaultValue={Number(g.target_amount)} className="input" />
+                    <input name="target_amount" inputMode="decimal" required defaultValue={Number(g.target_amount)} className="input" aria-label={`Valor alvo de ${g.name}`} />
                     <input value={`Saldo: ${brl(g.current_amount)}`} readOnly className="input text-muted" aria-label="Saldo atual, alterado somente por aportes" />
-                    <input name="deadline" type="date" defaultValue={g.deadline ?? ""} className="input" />
-                    <select name="priority" defaultValue={g.priority} className="input">
+                    <input name="deadline" type="date" defaultValue={g.deadline ?? ""} className="input" aria-label={`Prazo de ${g.name}`} />
+                    <select name="priority" defaultValue={g.priority} className="input" aria-label={`Prioridade de ${g.name}`}>
                       <option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option>
                     </select>
-                    <select name="kind" defaultValue={g.kind} className="input">
+                    <select name="kind" defaultValue={g.kind} className="input" aria-label={`Tipo da meta ${g.name}`}>
                       <option value="reserva">Reserva</option><option value="curto_prazo">Curto prazo</option><option value="medio_prazo">Médio prazo</option><option value="longo_prazo">Longo prazo</option>
                     </select>
-                    <select name="status" defaultValue={g.status} className="input">
+                    <select name="status" defaultValue={g.status} className="input" aria-label={`Status de ${g.name}`}>
                       <option value="em_andamento">Em andamento</option><option value="pausada">Pausada</option><option value="concluida">Concluída</option>
                     </select>
                   </div>
@@ -162,7 +170,7 @@ export default async function Caixinhas({
                 </form>
                 <form action={deleteGoal} className="mt-2">
                   <input type="hidden" name="id" value={g.id} />
-                  <button className="w-full py-2 text-sm font-semibold text-red-600 border border-red-200 rounded-lg">Excluir caixinha e aportes</button>
+                  <button className="btn-danger w-full">Excluir caixinha e aportes</button>
                 </form>
               </details>
             </div>

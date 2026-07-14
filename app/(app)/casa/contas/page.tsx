@@ -47,14 +47,14 @@ export default async function Contas() {
         <summary className="font-semibold cursor-pointer">＋ Adicionar conta ou custo</summary>
         <form action={addHouseCost} className="flex flex-col gap-2 mt-3">
           <input type="hidden" name="profile_id" value={casa.id} />
-          <input name="name" required className="input" placeholder="Nome do custo" />
+          <input name="name" required className="input" placeholder="Nome do custo" aria-label="Nome do custo" />
           <div className="grid grid-cols-2 gap-2">
-            <select name="cost_type" defaultValue="recorrente" className="input">
+            <select name="cost_type" defaultValue="recorrente" className="input" aria-label="Tipo do custo">
               <option value="recorrente">Conta recorrente</option><option value="entrada">Custo de entrada</option>
             </select>
-            <input name="expected_value" required inputMode="decimal" className="input" placeholder="Valor previsto" />
+            <input name="expected_value" required inputMode="decimal" className="input" placeholder="Valor previsto" aria-label="Valor previsto do custo" />
             <input name="barbara_pct" type="number" min="0" max="100" step="0.01" defaultValue="63.41" className="input" aria-label="Percentual da Bárbara" />
-            <input name="buy_when" className="input" placeholder="Quando comprar/pagar" />
+            <input name="buy_when" className="input" placeholder="Quando comprar/pagar" aria-label="Quando comprar ou pagar" />
           </div>
           <button className="btn">Adicionar custo</button>
         </form>
@@ -99,6 +99,8 @@ export default async function Contas() {
                 <div className="flex items-center gap-2 whitespace-nowrap">
                   <span className="text-sm font-semibold">{brl(c.expected_value)}</span>
                   <button
+                    aria-pressed={paid}
+                    aria-label={paid ? `Marcar ${c.name} como pendente` : `Marcar ${c.name} como pago`}
                     className={
                       paid
                         ? "px-3 py-1.5 rounded-lg text-sm font-semibold bg-border text-muted"
@@ -107,7 +109,7 @@ export default async function Contas() {
                   >
                     {paid ? "Pago ✓" : "Pagar"}
                   </button>
-                  <button formAction={deleteHouseCost} name="id" value={c.id} className="text-xs text-red-600" title="Excluir custo">×</button>
+                  <button formAction={deleteHouseCost} name="id" value={c.id} className="text-danger min-h-11 min-w-11 text-lg" aria-label={`Excluir custo ${c.name}`}>×</button>
                 </div>
               </form>
             );
@@ -129,7 +131,7 @@ export default async function Contas() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-semibold whitespace-nowrap">{brl(c.expected_value)}</span>
-                <form action={deleteHouseCost}><button name="id" value={c.id} className="text-red-600" title="Excluir custo">×</button></form>
+                <form action={deleteHouseCost}><button name="id" value={c.id} className="text-danger min-h-11 min-w-11 text-lg" aria-label={`Excluir custo ${c.name}`}>×</button></form>
               </div>
             </div>
           ))}

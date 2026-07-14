@@ -73,11 +73,11 @@ export default async function Perfil({
         <h2 className="text-xl font-bold">Perfil e espaços</h2>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <nav className="grid grid-cols-3 gap-2" aria-label="Seções do perfil">
         <Tab href="/perfil?secao=conta" active={section === "conta"} label="Minha conta" />
         <Tab href="/perfil?secao=espacos" active={section === "espacos"} label="Espaços" />
         <Tab href="/perfil?secao=planejamento" active={section === "planejamento"} label="Planejamento" />
-      </div>
+      </nav>
 
       <Status params={params} />
 
@@ -90,7 +90,7 @@ export default async function Perfil({
                 {googleIdentity ? `Conectado a ${googleEmail}.` : "Conecte o Gmail que recebe notificações bancárias."}
                 {gmail?.last_synced_at ? ` Última leitura: ${new Date(gmail.last_synced_at).toLocaleString("pt-BR")}.` : ""}
               </p>
-              {gmail?.last_error && <p className="text-xs text-red-600 mt-2">Falha recente: {gmail.last_error}</p>}
+              {gmail?.last_error && <p className="status-danger mt-2" role="alert">Falha recente: {gmail.last_error}</p>}
             </div>
             {!googleIdentity ? (
               <form action={connectGmail}><button className="btn w-full">Conectar Gmail</button></form>
@@ -98,7 +98,7 @@ export default async function Perfil({
               <div className="grid grid-cols-2 gap-2">
                 <form action={syncGmailNow}><button className="btn w-full">Sincronizar agora</button></form>
                 <form action={reprocessGmailNow}>
-                  <button className="w-full h-full px-3 py-2 rounded-xl border border-amber-300 text-amber-700 text-sm font-semibold">Reler últimos 14 dias</button>
+                  <button className="btn-warning w-full h-full">Reler últimos 14 dias</button>
                 </form>
               </div>
             )}
@@ -108,12 +108,12 @@ export default async function Perfil({
           <details className="card">
             <summary className="font-semibold cursor-pointer">Segurança da conta</summary>
             <form action={changePassword} className="flex flex-col gap-2 mt-3">
-              <input name="password" type="password" minLength={12} required autoComplete="new-password" className="input" placeholder="Nova senha (mínimo 12 caracteres)" />
-              <input name="confirmation" type="password" minLength={12} required autoComplete="new-password" className="input" placeholder="Confirmar nova senha" />
+              <input name="password" aria-label="Nova senha" type="password" minLength={12} required autoComplete="new-password" className="input" placeholder="Nova senha (mínimo 12 caracteres)" />
+              <input name="confirmation" aria-label="Confirmar nova senha" type="password" minLength={12} required autoComplete="new-password" className="input" placeholder="Confirmar nova senha" />
               <button className="btn">Alterar senha</button>
             </form>
           </details>
-          <form action={logout}><button className="w-full py-3 rounded-xl border border-red-200 text-red-600 font-semibold">Sair da conta</button></form>
+          <form action={logout}><button className="btn-danger w-full">Sair da conta</button></form>
         </>
       )}
 
@@ -129,7 +129,7 @@ export default async function Perfil({
                   <form action={switchProfile} key={profile.id}>
                     <input type="hidden" name="profileId" value={profile.id} />
                     <input type="hidden" name="next" value="/perfil?secao=espacos" />
-                    <button className={`w-full p-3 rounded-xl border flex items-center gap-3 text-left ${profile.id === active.id ? "border-brand bg-purple-50" : "border-border"}`}>
+                    <button className={`selectable w-full p-3 rounded-xl border flex items-center gap-3 text-left ${profile.id === active.id ? "selectable-active" : ""}`} aria-pressed={profile.id === active.id}>
                       <span className="w-3 h-3 rounded-full" style={{ background: profile.color ?? "#7c3aed" }} />
                       <span className="flex-1 min-w-0">
                         <span className="font-semibold block truncate">{profile.name}</span>
@@ -146,8 +146,8 @@ export default async function Perfil({
           <details className="card">
             <summary className="font-semibold cursor-pointer">Criar novo espaço</summary>
             <form action={createFinancialSpace} className="flex flex-col gap-2 mt-3">
-              <input name="name" className="input" required maxLength={80} placeholder="Ex.: Casa, Casal, BG Tech" />
-              <select name="context_type" className="input" defaultValue="household">
+              <input name="name" aria-label="Nome do novo espaço" className="input" required maxLength={80} placeholder="Ex.: Casa, Casal, BG Tech" />
+              <select name="context_type" aria-label="Tipo do novo espaço" className="input" defaultValue="household">
                 <option value="personal">Pessoal</option><option value="couple">Casal</option>
                 <option value="household">Casa</option><option value="business">Empresa</option><option value="other">Outro</option>
               </select>
@@ -162,7 +162,7 @@ export default async function Perfil({
               <p className="text-xs text-muted mt-1">Quem entrar com este e-mail receberá acesso ao espaço compartilhado.</p>
               <form action={inviteProfileMember} className="flex gap-2 mt-3">
                 <input type="hidden" name="profile_id" value={active.id} />
-                <input name="email" type="email" required className="input" placeholder="email@exemplo.com" />
+                <input name="email" aria-label="E-mail do novo membro" type="email" required className="input" placeholder="email@exemplo.com" />
                 <button className="btn">Convidar</button>
               </form>
             </div>
@@ -172,8 +172,8 @@ export default async function Perfil({
             <p className="font-semibold">Contas de {active.name}</p>
             <div className="flex flex-col gap-2 mt-3">
               {accounts.filter((account) => account.profile_id === active.id).map((account) => (
-                <div key={account.id} className="p-3 rounded-xl bg-slate-50 flex justify-between gap-2">
-                  <span className="text-sm font-medium">{account.name}</span>
+                <div key={account.id} className="surface-muted p-3 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-3">
+                  <span className="text-sm font-semibold text-foreground">{account.name}</span>
                   <span className="text-xs text-muted">{account.institution ?? "Sem banco"} · {account.ownership === "joint" ? "Conjunta" : account.ownership === "business" ? "Empresa" : "Pessoal"}</span>
                 </div>
               ))}
@@ -183,11 +183,11 @@ export default async function Perfil({
               <summary className="text-sm text-brand font-semibold cursor-pointer">+ Adicionar conta</summary>
               <form action={addFinancialAccount} className="grid grid-cols-2 gap-2 mt-3">
                 <input type="hidden" name="profile_id" value={active.id} />
-                <input name="name" required className="input col-span-2" placeholder="Nome da conta" />
-                <input name="institution" className="input" placeholder="Banco" />
-                <select name="kind" className="input"><option value="conta">Conta</option><option value="debito">Débito</option><option value="credito">Crédito</option><option value="dinheiro">Dinheiro</option></select>
-                <select name="ownership" className="input col-span-2"><option value="personal">Pessoal</option><option value="joint">Conjunta</option><option value="business">Empresa</option></select>
-                <input name="email_aliases" className="input col-span-2" placeholder="Como aparece no e-mail: Nu Empresas, Nubank" />
+                <input name="name" aria-label="Nome da conta" required className="input col-span-2" placeholder="Nome da conta" />
+                <input name="institution" aria-label="Instituição financeira" className="input" placeholder="Banco" />
+                <select name="kind" aria-label="Tipo da conta" className="input"><option value="conta">Conta</option><option value="debito">Débito</option><option value="credito">Crédito</option><option value="dinheiro">Dinheiro</option></select>
+                <select name="ownership" aria-label="Titularidade da conta" className="input col-span-2"><option value="personal">Pessoal</option><option value="joint">Conjunta</option><option value="business">Empresa</option></select>
+                <input name="email_aliases" aria-label="Nomes usados nos e-mails bancários" className="input col-span-2" placeholder="Como aparece no e-mail: Nu Empresas, Nubank" />
                 <button className="btn col-span-2">Salvar conta</button>
               </form>
             </details>
@@ -202,9 +202,9 @@ export default async function Perfil({
                   const profile = profiles.find((item) => item.id === route.profile_id);
                   const account = accounts.find((item) => item.id === route.account_id);
                   return (
-                    <div key={route.id} className="p-3 rounded-xl bg-slate-50 flex items-center justify-between gap-2">
+                    <div key={route.id} className="surface-muted p-3 rounded-xl flex items-center justify-between gap-2">
                       <div className="min-w-0"><p className="text-sm font-semibold truncate">{route.is_default ? "Demais e-mails" : route.match_label}</p><p className="text-xs text-muted truncate">→ {profile?.name}{account ? ` · ${account.name}` : ""}</p></div>
-                      <form action={deleteGmailRoute}><input type="hidden" name="id" value={route.id} /><button className="text-red-600 text-xs font-semibold">Excluir</button></form>
+                      <form action={deleteGmailRoute}><input type="hidden" name="id" value={route.id} /><button className="text-danger min-h-11 px-2 text-xs font-semibold" aria-label={`Excluir regra ${route.match_label}`}>Excluir</button></form>
                     </div>
                   );
                 })}
@@ -212,9 +212,9 @@ export default async function Perfil({
               <details className="mt-3">
                 <summary className="text-sm text-brand font-semibold cursor-pointer">+ Nova regra</summary>
                 <form action={saveGmailRoute} className="flex flex-col gap-2 mt-3">
-                  <input name="match_label" className="input" placeholder="Ex.: Nu Empresas" />
-                  <select name="profile_id" className="input" defaultValue={active.id}>{profiles.map((profile) => <option value={profile.id} key={profile.id}>{profile.name}</option>)}</select>
-                  <select name="account_id" className="input" defaultValue=""><option value="">Detectar conta automaticamente</option>{accounts.map((account) => <option key={account.id} value={account.id}>{profiles.find((profile) => profile.id === account.profile_id)?.name} · {account.name}</option>)}</select>
+                  <input name="match_label" aria-label="Texto que identifica a conta no e-mail" className="input" placeholder="Ex.: Nu Empresas" />
+                  <select name="profile_id" aria-label="Espaço de destino" className="input" defaultValue={active.id}>{profiles.map((profile) => <option value={profile.id} key={profile.id}>{profile.name}</option>)}</select>
+                  <select name="account_id" aria-label="Conta de destino" className="input" defaultValue=""><option value="">Detectar conta automaticamente</option>{accounts.map((account) => <option key={account.id} value={account.id}>{profiles.find((profile) => profile.id === account.profile_id)?.name} · {account.name}</option>)}</select>
                   <label className="text-xs flex gap-2 items-center"><input type="checkbox" name="is_default" value="1" /> Usar para os demais e-mails</label>
                   <button className="btn">Salvar regra</button>
                 </form>
@@ -233,7 +233,7 @@ export default async function Perfil({
             <>
               <div className="card">
                 <p className="label mb-2">Estratégia financeira</p>
-                <div className="flex flex-col gap-2">{TYPES.map((type) => <form action={setProfileType} key={type.key}><input type="hidden" name="profile_id" value={active.id} /><input type="hidden" name="type" value={type.key} /><button className={`w-full p-3 rounded-xl border text-left flex gap-3 ${active.profile_type === type.key ? "border-brand bg-purple-50" : "border-border"}`}><span className="text-xl">{type.emoji}</span><span><span className="font-semibold text-sm block">{type.label}</span><span className="text-xs text-muted">{type.desc}</span></span></button></form>)}</div>
+                <div className="flex flex-col gap-2">{TYPES.map((type) => <form action={setProfileType} key={type.key}><input type="hidden" name="profile_id" value={active.id} /><input type="hidden" name="type" value={type.key} /><button className={`selectable w-full p-3 rounded-xl border text-left flex gap-3 ${active.profile_type === type.key ? "selectable-active" : ""}`} aria-pressed={active.profile_type === type.key}><span className="text-xl" aria-hidden="true">{type.emoji}</span><span><span className="font-semibold text-sm block">{type.label}</span><span className="text-xs text-muted">{type.desc}</span></span></button></form>)}</div>
               </div>
               <div className="card">
                 <p className="label mb-2">Ajuste manual dos tetos</p>
@@ -248,7 +248,7 @@ export default async function Perfil({
 }
 
 function Tab({ href, active, label }: { href: string; active: boolean; label: string }) {
-  return <Link href={href} className={`p-2 text-center rounded-xl text-xs font-semibold border ${active ? "bg-brand text-white border-brand" : "bg-white text-muted border-border"}`}>{label}</Link>;
+  return <Link href={href} className={`tab-item ${active ? "tab-item-active" : ""}`} aria-current={active ? "page" : undefined}>{label}</Link>;
 }
 
 function Status({ params }: { params: Record<string, string | undefined> }) {
@@ -262,7 +262,7 @@ function Status({ params }: { params: Record<string, string | undefined> }) {
     : params.rota === "saved" ? "Regra de importação salva."
     : params.senha === "ok" ? "Senha alterada."
     : null;
-  return message ? <div className="card text-sm text-green-700" role="status">{message}</div> : null;
+  return message ? <div className="status-success" role="status">{message}</div> : null;
 }
 
 function FieldPct({ name, label, value }: { name: string; label: string; value: number }) {

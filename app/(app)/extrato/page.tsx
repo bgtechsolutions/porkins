@@ -26,11 +26,11 @@ type Txn = {
 };
 
 const TYPE_UI: Record<TransactionType, { label: string; sign: string; color: string; badge: string }> = {
-  expense: { label: "Gasto", sign: "−", color: "text-red-600", badge: "bg-red-50 text-red-700" },
-  income: { label: "Entrada", sign: "+", color: "text-emerald-600", badge: "bg-emerald-50 text-emerald-700" },
-  transfer_in: { label: "Recebido", sign: "+", color: "text-emerald-600", badge: "bg-emerald-50 text-emerald-700" },
-  transfer_out: { label: "Enviado", sign: "−", color: "text-amber-600", badge: "bg-amber-50 text-amber-700" },
-  card_payment: { label: "Fatura", sign: "", color: "text-slate-700", badge: "bg-slate-100 text-slate-700" },
+  expense: { label: "Gasto", sign: "−", color: "text-danger", badge: "badge-expense" },
+  income: { label: "Entrada", sign: "+", color: "text-success", badge: "badge-income" },
+  transfer_in: { label: "Recebido", sign: "+", color: "text-success", badge: "badge-income" },
+  transfer_out: { label: "Enviado", sign: "−", color: "text-warning", badge: "badge-transfer" },
+  card_payment: { label: "Fatura", sign: "", color: "text-foreground", badge: "badge-neutral" },
 };
 
 export default async function Extrato({
@@ -92,21 +92,21 @@ export default async function Extrato({
         <h2 className="text-xl font-bold">Extrato</h2>
       </div>
 
-      {importados && <div className="card text-sm text-green-700" role="status">{importados} lançamento(s) importado(s).</div>}
+      {importados && <div className="status-success" role="status">{importados} lançamento(s) importado(s).</div>}
 
       <form method="get" className="card flex gap-2 items-end">
         <label className="flex-1">
           <span className="label">Período</span>
-          <input type="month" name="mes" defaultValue={mes} className="input" />
+          <input type="month" name="mes" defaultValue={mes} className="input" aria-label="Mês do extrato" />
         </label>
         {tipo !== "todos" && <input type="hidden" name="tipo" value={tipo} />}
         <button type="submit" className="btn">Aplicar</button>
       </form>
 
       <div className="grid grid-cols-3 gap-2">
-        <Summary label="Entradas" value={entries} className="text-emerald-600" />
-        <Summary label="Gastos" value={expenses} className="text-red-600" />
-        <Summary label="Movimentações" value={movements} className="text-slate-700" />
+        <Summary label="Entradas" value={entries} className="text-success" />
+        <Summary label="Gastos" value={expenses} className="text-danger" />
+        <Summary label="Movimentações" value={movements} className="text-foreground" />
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-1">
@@ -114,7 +114,7 @@ export default async function Extrato({
           ["todos", "Todos"], ["entradas", "Entradas"], ["gastos", "Gastos"],
           ["movimentacoes", "Transferências"], ["revisar", "Revisar"],
         ].map(([value, label]) => (
-          <Link key={value} href={filterHref(value)} className={`px-3 py-2 rounded-full text-xs font-semibold whitespace-nowrap border ${tipo === value ? "bg-brand text-white border-brand" : "bg-white border-border text-muted"}`}>
+          <Link key={value} href={filterHref(value)} className={`filter-chip ${tipo === value ? "filter-chip-active" : ""}`} aria-current={tipo === value ? "page" : undefined}>
             {label}
           </Link>
         ))}
@@ -122,10 +122,10 @@ export default async function Extrato({
 
       <div className="flex justify-between text-xs">
         <div className="flex gap-3">
-          <Link href="/extrato" className="text-brand font-semibold">Mês atual</Link>
-          <Link href="/extrato?tudo=1" className="text-muted">Histórico completo</Link>
+          <Link href="/extrato" className="text-brand font-semibold min-h-11 inline-flex items-center">Mês atual</Link>
+          <Link href="/extrato?tudo=1" className="text-muted min-h-11 inline-flex items-center">Histórico completo</Link>
         </div>
-        <Link href="/importar" className="text-brand font-semibold">Importar CSV</Link>
+        <Link href="/importar" className="text-brand font-semibold min-h-11 inline-flex items-center">Importar CSV</Link>
       </div>
 
       {rows.length === 0 ? (
@@ -143,8 +143,8 @@ export default async function Extrato({
                 <summary className="flex items-center justify-between gap-3 cursor-pointer list-none">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${ui.badge}`}>{ui.label}</span>
-                      {transaction.needs_review && <span className="text-[10px] text-amber-700 font-bold">⚠ revisar</span>}
+                      <span className={ui.badge}>{ui.label}</span>
+                      {transaction.needs_review && <span className="text-xs text-warning font-bold">⚠ revisar</span>}
                     </div>
                     <p className="text-sm font-semibold truncate">{transaction.description || category || "Sem descrição"}</p>
                     <p className="text-xs text-muted truncate">
@@ -152,7 +152,7 @@ export default async function Extrato({
                       {account ? ` · ${account}` : ""}{category ? ` · ${category}` : ""}
                     </p>
                     {split && (
-                      <p className={`text-xs font-semibold mt-1 ${split.status === "paid" ? "text-emerald-600" : "text-violet-700"}`}>
+                      <p className={`text-xs font-semibold mt-1 ${split.status === "paid" ? "text-success" : "text-info"}`}>
                         {debtor?.display_name ?? "Outro membro"} {split.status === "paid" ? "pagou" : "deve"} {brl(split.amount)}
                       </p>
                     )}
@@ -162,25 +162,25 @@ export default async function Extrato({
 
                 <form action={updateTransaction} className="flex flex-col gap-2 mt-3 pt-3 border-t border-border">
                   <input type="hidden" name="id" value={transaction.id} />
-                  <select name="transaction_type" defaultValue={transaction.transaction_type} className="input">
+                  <select name="transaction_type" aria-label="Tipo do lançamento" defaultValue={transaction.transaction_type} className="input">
                     {TYPES.map((value) => <option key={value} value={value}>{TYPE_UI[value].label}</option>)}
                   </select>
                   <div className="grid grid-cols-2 gap-2">
-                    <input name="amount" type="text" inputMode="decimal" defaultValue={Number(transaction.amount)} className="input" placeholder="Valor" />
-                    <input name="occurred_at" type="date" defaultValue={transaction.occurred_at} className="input" />
+                    <input name="amount" aria-label="Valor do lançamento" type="text" inputMode="decimal" defaultValue={Number(transaction.amount)} className="input" placeholder="Valor" />
+                    <input name="occurred_at" aria-label="Data do lançamento" type="date" defaultValue={transaction.occurred_at} className="input" />
                   </div>
-                  <input name="description" type="text" defaultValue={transaction.description ?? ""} className="input" placeholder="Descrição" />
-                  <select name="category_id" defaultValue={transaction.category_id ?? ""} className="input">
+                  <input name="description" aria-label="Descrição do lançamento" type="text" defaultValue={transaction.description ?? ""} className="input" placeholder="Descrição" />
+                  <select name="category_id" aria-label="Categoria do lançamento" defaultValue={transaction.category_id ?? ""} className="input">
                     <option value="">Sem categoria</option>
                     {(categories ?? []).map((categoryItem) => <option key={categoryItem.id} value={categoryItem.id}>{categoryItem.name}</option>)}
                   </select>
                   {directory.some((member) => member.user_id !== (transaction.paid_by_user_id ?? userId)) && (
                     <div className="grid grid-cols-2 gap-2">
-                      <select name="debtor_user_id" defaultValue={split?.debtor_user_id ?? ""} className="input">
+                      <select name="debtor_user_id" aria-label="Pessoa que participa da divisão" defaultValue={split?.debtor_user_id ?? ""} className="input">
                         <option value="">Não dividir</option>
                         {directory.filter((member) => member.user_id !== (transaction.paid_by_user_id ?? userId)).map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name}</option>)}
                       </select>
-                      <input name="split_amount" type="text" inputMode="decimal" defaultValue={split ? Number(split.amount) : ""} className="input" placeholder="Parte da pessoa" />
+                      <input name="split_amount" aria-label="Valor devido pela outra pessoa" type="text" inputMode="decimal" defaultValue={split ? Number(split.amount) : ""} className="input" placeholder="Parte da pessoa" />
                     </div>
                   )}
                   <button className="btn">Salvar alterações</button>
@@ -189,14 +189,14 @@ export default async function Extrato({
                   <form action={markTransactionSplitPaid} className="mt-2">
                     <input type="hidden" name="id" value={split.id} />
                     <input type="hidden" name="status" value={split.status === "paid" ? "pending" : "paid"} />
-                    <button className="w-full py-2 rounded-lg text-sm font-semibold text-violet-700 border border-violet-200">
+                    <button className="btn-secondary w-full">
                       {split.status === "paid" ? "Marcar acerto como pendente" : "Marcar como pago"}
                     </button>
                   </form>
                 )}
                 <form action={deleteTransaction} className="mt-2">
                   <input type="hidden" name="id" value={transaction.id} />
-                  <button className="w-full py-2 rounded-lg text-sm font-semibold text-red-600 border border-red-200">Excluir lançamento</button>
+                  <button className="btn-danger w-full">Excluir lançamento</button>
                 </form>
               </details>
             );
@@ -210,8 +210,8 @@ export default async function Extrato({
 function Summary({ label, value, className }: { label: string; value: number; className: string }) {
   return (
     <div className="card !p-3 min-w-0">
-      <p className="text-[10px] text-muted truncate">{label}</p>
-      <p className={`text-xs font-bold truncate ${className}`}>{brl(value)}</p>
+      <p className="text-xs text-muted truncate">{label}</p>
+      <p className={`text-sm font-bold tabular-nums truncate ${className}`}>{brl(value)}</p>
     </div>
   );
 }

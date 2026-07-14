@@ -59,15 +59,15 @@ export default async function Compras() {
         <summary className="font-semibold cursor-pointer">＋ Adicionar produto</summary>
         <form action={addHouseProduct} className="flex flex-col gap-2 mt-3">
           <input type="hidden" name="profile_id" value={casa.id} />
-          <input name="name" required className="input" placeholder="Produto" />
+          <input name="name" required className="input" placeholder="Produto" aria-label="Nome do produto" />
           <div className="grid grid-cols-2 gap-2">
-            <input name="category" className="input" placeholder="Categoria" />
-            <input name="ideal_qty" className="input" placeholder="Quantidade" />
-            <select name="planned_month" defaultValue="" className="input">
+            <input name="category" className="input" placeholder="Categoria" aria-label="Categoria do produto" />
+            <input name="ideal_qty" className="input" placeholder="Quantidade" aria-label="Quantidade ideal" />
+            <select name="planned_month" defaultValue="" className="input" aria-label="Mês planejado para compra">
               <option value="">Sem mês definido</option>{MONTHS.map((month) => <option key={month} value={month}>{month}</option>)}
             </select>
-            <input name="priority" type="number" min="1" className="input" placeholder="Prioridade" />
-            <input name="budget_base" inputMode="decimal" className="input col-span-2" placeholder="Valor orçado" />
+            <input name="priority" type="number" min="1" className="input" placeholder="Prioridade" aria-label="Prioridade da compra" />
+            <input name="budget_base" inputMode="decimal" className="input col-span-2" placeholder="Valor orçado" aria-label="Valor orçado" />
           </div>
           <button className="btn">Adicionar produto</button>
         </form>
@@ -122,7 +122,7 @@ function MonthGroup({ title, items }: { title: string; items: Product[] }) {
                 <p className="font-medium text-sm">
                   {p.name}
                   {p._overdue && (
-                    <span className="ml-2 text-xs font-semibold text-amber-600">
+                    <span className="ml-2 text-xs font-semibold text-warning">
                       ↪ atrasado
                     </span>
                   )}
@@ -144,12 +144,13 @@ function MonthGroup({ title, items }: { title: string; items: Product[] }) {
                 className="input"
                 placeholder={p.budget_base ? `Paguei (orçado ${brl(p.budget_base)})` : "Quanto paguei"}
                 inputMode="decimal"
+                aria-label={`Valor pago por ${p.name}`}
               />
               <button className="btn whitespace-nowrap">Comprei</button>
             </form>
             <form action={deleteHouseProduct} className="mt-1">
               <input type="hidden" name="id" value={p.id} />
-              <button className="text-xs text-red-600">Excluir produto</button>
+              <button className="btn-danger w-full" aria-label={`Excluir produto ${p.name}`}>Excluir produto</button>
             </form>
           </div>
         ))}

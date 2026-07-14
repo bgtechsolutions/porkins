@@ -1,79 +1,34 @@
 import Link from "next/link";
 import { getContext } from "@/lib/profiles";
 import { switchProfile } from "./actions";
+import { BottomNav } from "./BottomNav";
 
-export default async function AppLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { profiles, active } = await getContext();
 
   return (
     <div className="mx-auto w-full max-w-lg min-h-screen flex flex-col pb-[calc(6rem+env(safe-area-inset-bottom))]">
-      {/* Topo: seletor de perfil */}
-      <header className="px-4 py-3 flex items-center gap-3 overflow-hidden">
+      <header className="px-4 pt-[calc(0.75rem+env(safe-area-inset-top))] pb-3 flex items-center gap-3 overflow-hidden" aria-label="Espaço financeiro ativo">
         <div className="flex gap-2 overflow-x-auto flex-1 pb-1">
-          {profiles.map((p) => {
-            const isActive = p.id === active?.id;
+          {profiles.map((profile) => {
+            const isActive = profile.id === active?.id;
             return (
-              <form action={switchProfile} key={p.id}>
-                <input type="hidden" name="profileId" value={p.id} />
+              <form action={switchProfile} key={profile.id}>
+                <input type="hidden" name="profileId" value={profile.id} />
                 <input type="hidden" name="next" value="/dashboard" />
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 rounded-full text-sm font-semibold border transition"
-                  style={
-                    isActive
-                      ? {
-                          background: p.color ?? "var(--brand)",
-                          color: "#fff",
-                          borderColor: p.color ?? "var(--brand)",
-                        }
-                      : { borderColor: "var(--border)", color: "var(--muted)" }
-                  }
-                >
-                  {p.name}
+                <button type="submit" className={`profile-chip gap-2 ${isActive ? "profile-chip-active" : ""}`} aria-pressed={isActive}>
+                  <span className="size-2.5 rounded-full border border-current/20" style={{ background: profile.color ?? "var(--brand)" }} aria-hidden="true" />
+                  {profile.name}
                 </button>
               </form>
             );
           })}
         </div>
-        <Link href="/perfil" className="text-sm text-muted font-semibold whitespace-nowrap">Perfil</Link>
+        <Link href="/perfil?secao=espacos" className="profile-chip" aria-label="Gerenciar espaços financeiros">Gerenciar</Link>
       </header>
 
-      <main className="flex-1 px-4">{children}</main>
-
-      {/* Navegação inferior */}
-      <nav className="fixed bottom-0 inset-x-0 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] z-20">
-        <div className="mx-auto max-w-lg grid grid-cols-5">
-          <NavLink href="/dashboard" icon="📊" label="Resumo" />
-          <NavLink href="/nova" icon="➕" label="Lançar" />
-          <NavLink href="/extrato" icon="📋" label="Extrato" />
-          <NavLink href="/caixinhas" icon="🐖" label="Caixinhas" />
-          <NavLink href="/perfil" icon="⚙️" label="Perfil" />
-        </div>
-      </nav>
+      <main id="main-content" className="flex-1 px-4" tabIndex={-1}>{children}</main>
+      <BottomNav />
     </div>
-  );
-}
-
-function NavLink({
-  href,
-  icon,
-  label,
-}: {
-  href: string;
-  icon: string;
-  label: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="flex flex-col items-center gap-0.5 py-3 text-xs text-muted"
-    >
-      <span className="text-xl">{icon}</span>
-      {label}
-    </Link>
   );
 }
