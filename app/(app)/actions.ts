@@ -1,12 +1,16 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ACTIVE_COOKIE, getContext } from "@/lib/profiles";
 import { parseBRL } from "@/lib/format";
 import { parseTransactionsCsv } from "@/lib/csv";
+import { GOOGLE_SCOPES } from "@/lib/gmail/oauth";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { renewGmailWatch, syncGmailConnection } from "@/lib/gmail/sync";
+import type { GmailConnection } from "@/lib/gmail/google";
 
 type AppSupabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -412,4 +416,33 @@ export async function changePassword(formData: FormData) {
   const { error } = await supabase.auth.updateUser({ password });
   check(error, "Não foi possível alterar a senha");
   redirect("/perfil?senha=ok");
+}
+
+export async function connectGmail() {
+  const { supabase } = await getContext();
+  const headerStore = await headers();
+  const origin = process.env.NEXT_PUBLIC_SITE_URL ?? headerStore.get("origin") ?? "http://localhost:3000";
+  const { data, error } = await supabase.auth.linkIdentity({
+    provider: "google",
+    options: {
+      redirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/perfil?gmail=connected")}`,
+      scopes: GOOGLE_SCOPES,
+      queryParams: { access_type: "offline", prompt: "consent", include_granted_scopes: "true" },
+    },
+  });
+  if (error || !data.url) fail(`Não foi possível conectar o Gmail: ${error?.message ?? "URL ausente"}`);
+  redirect(data.url);
+}
+
+export async function syncGmailNow() {
+  const { userId } = await getContext();
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("gmail_connections").select("*").eq("user_id", userId).single();
+  check(error, "Gmail ainda não conectado");
+  await renewGmailWatch(data as GmailConnection);
+  await syncGmailConnection(data as GmailConnection);
+  revalidatePath("/perfil");
+  revalidatePath("/extrato");
+  revalidatePath("/dashboard");
+  redirect("/perfil?gmail=synced");
 }
