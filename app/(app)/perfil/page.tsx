@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getContext } from "@/lib/profiles";
-import { setProfileType, updateAllocations } from "../actions";
+import { changePassword, setProfileType, updateAllocations } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,7 @@ const TYPES = [
   { key: "investidor", label: "Investidor", desc: "50 / 20 / 30 — foco em investir", emoji: "🚀" },
 ];
 
-export default async function Perfil() {
+export default async function Perfil({ searchParams }: { searchParams: Promise<{ senha?: string }> }) {
   const { supabase, active } = await getContext();
   if (!active) return <p className="text-muted">Nenhum perfil.</p>;
 
@@ -24,10 +24,23 @@ export default async function Perfil() {
   const rules = (data ?? []) as Rule[];
   const pctOf = (b: string) => Math.round(Number(rules.find((r) => r.bucket === b)?.percentage ?? 0) * 100);
   const isCasa = active.type === "compartilhado";
+  const { senha } = await searchParams;
 
   return (
     <div className="flex flex-col gap-4">
       <h2 className="text-lg font-bold">Perfil — {active.name}</h2>
+
+      {senha === "ok" && <div className="card text-sm text-green-700" role="status">Senha alterada com sucesso.</div>}
+
+      <details className="card">
+        <summary className="font-semibold cursor-pointer">Segurança da conta</summary>
+        <form action={changePassword} className="flex flex-col gap-2 mt-3">
+          <p className="text-xs text-muted">Troque qualquer senha temporária por uma senha exclusiva de pelo menos 12 caracteres.</p>
+          <input name="password" type="password" minLength={12} required autoComplete="new-password" className="input" placeholder="Nova senha" />
+          <input name="confirmation" type="password" minLength={12} required autoComplete="new-password" className="input" placeholder="Confirmar nova senha" />
+          <button className="btn">Alterar senha</button>
+        </form>
+      </details>
 
       <Link href="/renda" className="card flex items-center justify-between">
         <div>

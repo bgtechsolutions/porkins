@@ -4,12 +4,42 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { ACTIVE_COOKIE } from "@/lib/profiles";
+import { ACTIVE_COOKIE, getContext } from "@/lib/profiles";
 import { parseBRL } from "@/lib/format";
+import { parseTransactionsCsv } from "@/lib/csv";
+
+type AppSupabase = Awaited<ReturnType<typeof createClient>>;
+
+function fail(message: string): never {
+  throw new Error(message);
+}
+
+function check(error: { message: string } | null, context: string) {
+  if (error) fail(`${context}: ${error.message}`);
+}
+
+async function requireProfile(profileId: string): Promise<AppSupabase> {
+  if (!profileId) fail("Perfil não informado.");
+  const { supabase, profiles } = await getContext();
+  if (!profiles.some((profile) => profile.id === profileId)) fail("Acesso negado a este perfil.");
+  return supabase;
+}
+
+async function requireOwnedRow(
+  table: "transactions" | "income_sources" | "goals" | "house_products" | "house_costs",
+  id: string,
+) {
+  const { supabase, profiles } = await getContext();
+  const { data, error } = await supabase.from(table).select("profile_id").eq("id", id).single();
+  check(error, "Não foi possível validar o registro");
+  if (!data || !profiles.some((profile) => profile.id === data.profile_id)) fail("Acesso negado ao registro.");
+  return supabase;
+}
 
 export async function switchProfile(formData: FormData) {
   const id = String(formData.get("profileId") ?? "");
   const next = String(formData.get("next") ?? "/dashboard");
+  await requireProfile(id);
   const cookieStore = await cookies();
   cookieStore.set(ACTIVE_COOKIE, id, { path: "/", maxAge: 60 * 60 * 24 * 365 });
   redirect(next);
@@ -22,9 +52,10 @@ export async function logout() {
 }
 
 export async function addTransaction(formData: FormData) {
-  const supabase = await createClient();
   const profile_id = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profile_id);
   const amount = parseBRL(formData.get("amount"));
+  if (amount <= 0) fail("Informe um valor maior que zero.");
   const description = String(formData.get("description") ?? "").trim() || null;
   const category_id = String(formData.get("category_id") ?? "") || null;
   const account_id = String(formData.get("account_id") ?? "") || null;
@@ -32,7 +63,7 @@ export async function addTransaction(formData: FormData) {
     String(formData.get("occurred_at") ?? "") ||
     new Date().toISOString().slice(0, 10);
 
-  await supabase.from("transactions").insert({
+  const { error } = await supabase.from("transactions").insert({
     profile_id,
     amount,
     description,
@@ -42,17 +73,18 @@ export async function addTransaction(formData: FormData) {
     source: "manual",
     needs_review: !category_id,
   });
+  check(error, "Não foi possível salvar o gasto");
 
   revalidatePath("/dashboard");
   redirect("/dashboard");
 }
 
 export async function updateTransaction(formData: FormData) {
-  const supabase = await createClient();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
+  const supabase = await requireOwnedRow("transactions", id);
   const category_id = String(formData.get("category_id") ?? "") || null;
-  await supabase
+  const { error } = await supabase
     .from("transactions")
     .update({
       amount: parseBRL(formData.get("amount")),
@@ -62,68 +94,62 @@ export async function updateTransaction(formData: FormData) {
       needs_review: !category_id,
     })
     .eq("id", id);
+  check(error, "Não foi possível atualizar o lançamento");
   revalidatePath("/extrato");
   revalidatePath("/dashboard");
 }
 
 export async function deleteTransaction(formData: FormData) {
-  const supabase = await createClient();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
-  await supabase.from("transactions").delete().eq("id", id);
+  const supabase = await requireOwnedRow("transactions", id);
+  const { error } = await supabase.from("transactions").delete().eq("id", id);
+  check(error, "Não foi possível excluir o lançamento");
   revalidatePath("/extrato");
   revalidatePath("/dashboard");
 }
 
 export async function addContribution(formData: FormData) {
-  const supabase = await createClient();
   const goal_id = String(formData.get("goal_id") ?? "");
-  const profile_id = String(formData.get("profile_id") ?? "");
   const amount = parseBRL(formData.get("amount"));
-  if (!goal_id || !amount) return;
-
-  const { data: goal } = await supabase
-    .from("goals")
-    .select("current_amount")
-    .eq("id", goal_id)
-    .single();
-
-  await supabase.from("contributions").insert({ goal_id, profile_id, amount });
-  await supabase
-    .from("goals")
-    .update({ current_amount: Number(goal?.current_amount ?? 0) + amount })
-    .eq("id", goal_id);
+  if (!goal_id || amount <= 0) fail("Informe um aporte maior que zero.");
+  const supabase = await requireOwnedRow("goals", goal_id);
+  const { error } = await supabase.rpc("fn_add_contribution", { p_goal_id: goal_id, p_amount: amount });
+  check(error, "Não foi possível registrar o aporte");
 
   revalidatePath("/caixinhas");
   revalidatePath("/dashboard");
 }
 
 export async function updateIncome(formData: FormData) {
-  const supabase = await createClient();
   const id = String(formData.get("id") ?? "");
   const amount = parseBRL(formData.get("amount"));
   if (!id) return;
-  await supabase.from("income_sources").update({ amount }).eq("id", id);
+  const supabase = await requireOwnedRow("income_sources", id);
+  const { error } = await supabase.from("income_sources").update({ amount }).eq("id", id);
+  check(error, "Não foi possível atualizar a renda");
   revalidatePath("/renda");
   revalidatePath("/dashboard");
 }
 
 export async function addIncome(formData: FormData) {
-  const supabase = await createClient();
   const profile_id = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profile_id);
   const name = String(formData.get("name") ?? "").trim();
   const amount = parseBRL(formData.get("amount"));
   if (!profile_id || !name) return;
-  await supabase.from("income_sources").insert({ profile_id, name, amount, kind: "salario" });
+  const { error } = await supabase.from("income_sources").insert({ profile_id, name, amount, kind: "salario" });
+  check(error, "Não foi possível adicionar a renda");
   revalidatePath("/renda");
   revalidatePath("/dashboard");
 }
 
 export async function deleteIncome(formData: FormData) {
-  const supabase = await createClient();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
-  await supabase.from("income_sources").delete().eq("id", id);
+  const supabase = await requireOwnedRow("income_sources", id);
+  const { error } = await supabase.from("income_sources").delete().eq("id", id);
+  check(error, "Não foi possível remover a renda");
   revalidatePath("/renda");
   revalidatePath("/dashboard");
 }
@@ -141,20 +167,23 @@ async function setBucket(
   bucket: string,
   pct: number,
 ) {
-  await supabase
+  const { error } = await supabase
     .from("allocation_rules")
     .update({ percentage: pct })
     .eq("profile_id", profile_id)
     .eq("bucket", bucket);
+  check(error, "Não foi possível atualizar a regra");
 }
 
 export async function setProfileType(formData: FormData) {
-  const supabase = await createClient();
   const profile_id = String(formData.get("profile_id") ?? "");
-  const type = String(formData.get("type") ?? "razoavel");
-  const preset = PROFILE_PRESETS[type] ?? PROFILE_PRESETS.razoavel;
+  const supabase = await requireProfile(profile_id);
+  const requestedType = String(formData.get("type") ?? "razoavel");
+  const type = requestedType in PROFILE_PRESETS ? requestedType : "razoavel";
+  const preset = PROFILE_PRESETS[type];
   if (!profile_id) return;
-  await supabase.from("profiles").update({ profile_type: type }).eq("id", profile_id);
+  const { error } = await supabase.from("profiles").update({ profile_type: type }).eq("id", profile_id);
+  check(error, "Não foi possível atualizar o perfil");
   await setBucket(supabase, profile_id, "obrigatoria", preset.obrigatoria);
   await setBucket(supabase, profile_id, "nao_obrig", preset.nao_obrig);
   await setBucket(supabase, profile_id, "investimento", preset.investimento);
@@ -163,13 +192,15 @@ export async function setProfileType(formData: FormData) {
 }
 
 export async function updateAllocations(formData: FormData) {
-  const supabase = await createClient();
   const profile_id = String(formData.get("profile_id") ?? "");
   if (!profile_id) return;
+  const supabase = await requireProfile(profile_id);
   const o = Number(formData.get("obrigatoria") ?? 0) / 100;
   const n = Number(formData.get("nao_obrig") ?? 0) / 100;
   const i = Number(formData.get("investimento") ?? 0) / 100;
-  await supabase.from("profiles").update({ profile_type: "personalizado" }).eq("id", profile_id);
+  if ([o, n, i].some((value) => !Number.isFinite(value) || value < 0 || value > 1)) fail("Percentuais inválidos.");
+  const { error } = await supabase.from("profiles").update({ profile_type: "personalizado" }).eq("id", profile_id);
+  check(error, "Não foi possível atualizar o perfil");
   await setBucket(supabase, profile_id, "obrigatoria", o);
   await setBucket(supabase, profile_id, "nao_obrig", n);
   await setBucket(supabase, profile_id, "investimento", i);
@@ -178,36 +209,207 @@ export async function updateAllocations(formData: FormData) {
 }
 
 export async function markProductBought(formData: FormData) {
-  const supabase = await createClient();
   const id = String(formData.get("product_id") ?? "");
   const real_value = parseBRL(formData.get("real_value"));
   if (!id) return;
-  await supabase
+  const supabase = await requireOwnedRow("house_products", id);
+  const { error } = await supabase
     .from("house_products")
     .update({ status: "comprado", real_value })
     .eq("id", id);
+  check(error, "Não foi possível marcar o produto");
   revalidatePath("/casa/compras");
   revalidatePath("/dashboard");
 }
 
 export async function toggleBillPaid(formData: FormData) {
-  const supabase = await createClient();
   const cost_id = String(formData.get("cost_id") ?? "");
   const profile_id = String(formData.get("profile_id") ?? "");
   const ym = String(formData.get("ym") ?? "");
   const isPaid = String(formData.get("is_paid") ?? "") === "1";
   if (!cost_id || !ym) return;
+  const supabase = await requireOwnedRow("house_costs", cost_id);
+  await requireProfile(profile_id);
+  const { data: cost, error: costError } = await supabase.from("house_costs").select("profile_id").eq("id", cost_id).single();
+  check(costError, "Não foi possível validar a conta");
+  if (cost?.profile_id !== profile_id) fail("A conta não pertence ao perfil informado.");
 
   if (isPaid) {
-    await supabase
+    const { error } = await supabase
       .from("house_bill_payments")
       .delete()
       .eq("cost_id", cost_id)
       .eq("ym", ym);
+    check(error, "Não foi possível reabrir a conta");
   } else {
-    await supabase
+    const { error } = await supabase
       .from("house_bill_payments")
       .insert({ cost_id, profile_id, ym });
+    check(error, "Não foi possível marcar a conta como paga");
   }
   revalidatePath("/casa/contas");
+}
+
+export async function importTransactionsCsv(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) fail("Selecione um arquivo CSV.");
+  if (file.size > 1024 * 1024) fail("O CSV deve ter no máximo 1 MB.");
+
+  const rows = parseTransactionsCsv(await file.text());
+  if (rows.length > 500) fail("Importe no máximo 500 lançamentos por vez.");
+
+  const [{ data: categories, error: categoryError }, { data: accounts, error: accountError }] = await Promise.all([
+    supabase.from("categories").select("id,name").eq("is_income", false),
+    supabase.from("accounts").select("id,name").eq("profile_id", profileId),
+  ]);
+  check(categoryError, "Não foi possível carregar as categorias");
+  check(accountError, "Não foi possível carregar as contas");
+  const key = (value: string | null) => value?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() ?? "";
+  const categoryMap = new Map((categories ?? []).map((item) => [key(item.name), item.id]));
+  const accountMap = new Map((accounts ?? []).map((item) => [key(item.name), item.id]));
+  const payload = rows.map((row) => {
+    const categoryId = categoryMap.get(key(row.categoryName)) ?? null;
+    return {
+      profile_id: profileId,
+      amount: row.amount,
+      description: row.description,
+      occurred_at: row.occurredAt,
+      category_id: categoryId,
+      account_id: accountMap.get(key(row.accountName)) ?? null,
+      source: "csv" as const,
+      needs_review: !categoryId,
+      raw_text: null,
+    };
+  });
+  const { error } = await supabase.from("transactions").insert(payload);
+  check(error, "Não foi possível importar o CSV");
+  revalidatePath("/dashboard");
+  revalidatePath("/extrato");
+  redirect(`/extrato?importados=${payload.length}`);
+}
+
+export async function addGoal(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const name = String(formData.get("name") ?? "").trim();
+  const targetAmount = parseBRL(formData.get("target_amount"));
+  if (!name || targetAmount <= 0) fail("Informe o nome e uma meta maior que zero.");
+  const deadline = String(formData.get("deadline") ?? "") || null;
+  const priority = String(formData.get("priority") ?? "media");
+  const kind = String(formData.get("kind") ?? "curto_prazo");
+  const weight = priority === "alta" ? 3 : priority === "baixa" ? 1 : 2;
+  const { error } = await supabase.from("goals").insert({
+    profile_id: profileId,
+    name,
+    target_amount: targetAmount,
+    deadline,
+    priority,
+    kind,
+    weight,
+  });
+  check(error, "Não foi possível criar a caixinha");
+  revalidatePath("/caixinhas");
+  revalidatePath("/dashboard");
+}
+
+export async function updateGoal(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  const supabase = await requireOwnedRow("goals", id);
+  const name = String(formData.get("name") ?? "").trim();
+  const targetAmount = parseBRL(formData.get("target_amount"));
+  if (!name || targetAmount <= 0) fail("Dados inválidos para a caixinha.");
+  const priority = String(formData.get("priority") ?? "media");
+  const { error } = await supabase.from("goals").update({
+    name,
+    target_amount: targetAmount,
+    deadline: String(formData.get("deadline") ?? "") || null,
+    priority,
+    kind: String(formData.get("kind") ?? "curto_prazo"),
+    weight: priority === "alta" ? 3 : priority === "baixa" ? 1 : 2,
+    status: String(formData.get("status") ?? "em_andamento"),
+  }).eq("id", id);
+  check(error, "Não foi possível atualizar a caixinha");
+  revalidatePath("/caixinhas");
+  revalidatePath("/dashboard");
+}
+
+export async function deleteGoal(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  const supabase = await requireOwnedRow("goals", id);
+  const { error } = await supabase.from("goals").delete().eq("id", id);
+  check(error, "Não foi possível excluir a caixinha");
+  revalidatePath("/caixinhas");
+  revalidatePath("/dashboard");
+}
+
+export async function addHouseProduct(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) fail("Informe o nome do produto.");
+  const { error } = await supabase.from("house_products").insert({
+    profile_id: profileId,
+    name,
+    category: String(formData.get("category") ?? "").trim() || null,
+    planned_month: String(formData.get("planned_month") ?? "") || null,
+    priority: Number(formData.get("priority") ?? 0) || null,
+    budget_base: parseBRL(formData.get("budget_base")) || null,
+    ideal_qty: String(formData.get("ideal_qty") ?? "").trim() || null,
+  });
+  check(error, "Não foi possível adicionar o produto");
+  revalidatePath("/casa/compras");
+  revalidatePath("/dashboard");
+}
+
+export async function deleteHouseProduct(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  const supabase = await requireOwnedRow("house_products", id);
+  const { error } = await supabase.from("house_products").delete().eq("id", id);
+  check(error, "Não foi possível excluir o produto");
+  revalidatePath("/casa/compras");
+  revalidatePath("/dashboard");
+}
+
+export async function addHouseCost(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const name = String(formData.get("name") ?? "").trim();
+  const expectedValue = parseBRL(formData.get("expected_value"));
+  if (!name || expectedValue <= 0) fail("Informe o nome e um valor maior que zero.");
+  const barbaraPct = Number(formData.get("barbara_pct") ?? 63.41) / 100;
+  if (!Number.isFinite(barbaraPct) || barbaraPct < 0 || barbaraPct > 1) fail("Rateio inválido.");
+  const { error } = await supabase.from("house_costs").insert({
+    profile_id: profileId,
+    name,
+    cost_type: String(formData.get("cost_type") ?? "recorrente"),
+    expected_value: expectedValue,
+    barbara_pct: barbaraPct,
+    gabriel_pct: 1 - barbaraPct,
+    buy_when: String(formData.get("buy_when") ?? "").trim() || null,
+  });
+  check(error, "Não foi possível adicionar o custo");
+  revalidatePath("/casa/contas");
+  revalidatePath("/dashboard");
+}
+
+export async function deleteHouseCost(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  const supabase = await requireOwnedRow("house_costs", id);
+  const { error } = await supabase.from("house_costs").delete().eq("id", id);
+  check(error, "Não foi possível excluir o custo");
+  revalidatePath("/casa/contas");
+  revalidatePath("/dashboard");
+}
+
+export async function changePassword(formData: FormData) {
+  const password = String(formData.get("password") ?? "");
+  const confirmation = String(formData.get("confirmation") ?? "");
+  if (password.length < 12) fail("A nova senha deve ter pelo menos 12 caracteres.");
+  if (password !== confirmation) fail("As senhas não coincidem.");
+  const { supabase } = await getContext();
+  const { error } = await supabase.auth.updateUser({ password });
+  check(error, "Não foi possível alterar a senha");
+  redirect("/perfil?senha=ok");
 }

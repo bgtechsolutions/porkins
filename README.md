@@ -1,56 +1,65 @@
-# Porkin 🐷 — Controle financeiro do Gabriel, da Bárbara e da Casa
+# Porkin 🐷
 
-App web para substituir as 3 planilhas de controle (pessoal do Gabriel, pessoal da
-Bárbara e o projeto da Casa) por algo automático, com login, dashboards por perfil,
-caixinhas com metas/prazos e sugestão inteligente de quanto investir.
+Controle financeiro do Gabriel, da Bárbara e da Casa. O aplicativo substitui as planilhas pessoais por lançamentos centralizados, dashboards por perfil, metas, aportes e planejamento da mudança.
 
 ## Stack
 
-- **Supabase** (Postgres + Auth + API) — projeto `porkin-financas`, região São Paulo.
-- **Next.js + Vercel** (a construir) — site + PWA pra registrar gasto rápido no celular.
-- **LLM gratuita** (Fase 2) — classifica transações e lê e-mails de compra.
+- Next.js 16 (App Router, Server Components e Server Actions)
+- React 19, TypeScript e Tailwind CSS 4
+- Supabase (Postgres, Auth, API e Row Level Security)
+- Vercel, região `gru1` (São Paulo)
+- Vitest para testes unitários
 
-## Conexão
+## Desenvolvimento
 
+```bash
+npm install
+npm run dev
 ```
-SUPABASE_URL      = https://obyygnysjyhsglwuvcvt.supabase.co
-SUPABASE_ANON_KEY = sb_publishable_q0_gzkM-IbYJvLUtcROZgg_CW5184ra
+
+Crie `.env.local` a partir de `.env.example`. Apenas a chave pública do Supabase é usada no cliente; nunca adicione senhas, chaves administrativas ou tokens ao Git.
+
+Validação completa:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
 
-Ver `.env.example`. A chave publishable é segura pro front-end — o acesso aos dados
-é protegido por Row Level Security (RLS) por perfil.
+## Funcionalidades
+
+- Login e perfis pessoais/compartilhado protegidos por RLS.
+- Dashboard mensal, regra de tetos, ranking de categorias e visão da Casa.
+- Cadastro, edição, exclusão e importação CSV de transações.
+- Fontes de renda editáveis.
+- Caixinhas com CRUD, histórico de aportes e sugestão de distribuição.
+- Aportes transacionais no banco, sem divergência entre histórico e saldo.
+- Enxoval, custos da mudança e contas recorrentes da Casa.
+- Manifest instalável como PWA.
+- Troca de senha dentro do perfil.
 
 ## Banco de dados
 
-Migrations em `supabase/migrations/` (já aplicadas no projeto):
+As migrations ficam em `supabase/migrations/` e devem ser aplicadas em ordem. As mais recentes são:
 
-| # | Arquivo | O que faz |
-|---|---------|-----------|
-| 01 | `01_core_schema.sql` | Perfis, contas, categorias, transações, metas, aportes, regras de distribuição + RLS |
-| 02 | `02_house_module.sql` | Enxoval (`house_products`) e custos de mudança (`house_costs`) |
-| 03 | `03_seed_data.sql` | Dados reais migrados das 3 planilhas |
-| 04 | `04_logic_views.sql` | Views de progresso e função de sugestão de aporte |
-| 05 | `05_refine_suggestion.sql` | Refino: metas de longo prazo não distorcem a distribuição |
-| 06 | `06_security_hardening.sql` | Views com `security_invoker`, `search_path` fixo |
+- `09_house_bill_payments.sql`: pagamento mensal das contas da Casa.
+- `10_model_60_30_10.sql`: perfis e tetos configuráveis.
+- `11_atomic_contributions.sql`: aporte e saldo da meta em uma única transação.
 
-### Entidades principais
+Usuários devem ser criados pelo Supabase Auth. A migration 07 apenas associa usuários existentes aos perfis; credenciais não são armazenadas no repositório.
 
-- **profiles** — Gabriel, Bárbara, Casa (compartilhado). Login via `profile_members`.
-- **transactions** — gastos (valor, data, categoria, conta). `needs_review = true`
-  dispara a notificação quando a LLM não souber classificar.
-- **goals** (caixinhas) — meta, valor atual, prazo, prioridade, peso, tipo.
-  A caixinha "Casa" dos dois é ligada por `joint_group = 'casa_futura'`.
-- **contributions** — histórico de aportes.
-- **allocation_rules** — a regra de cada um (Gabriel 60/20/10/10, Bárbara 60/30/10, Casa 70/30).
+## CSV
 
-### Lógica de investimento
+O importador aceita até 500 linhas ou 1 MB. Colunas obrigatórias: `Data` e `Valor`. Colunas opcionais: `Descrição`, `Categoria` e `Conta`. Datas podem usar `DD/MM/AAAA` ou `AAAA-MM-DD`.
 
-`fn_suggest_contributions(perfil, valor_disponível)` sugere quanto aportar em cada
-caixinha. Ver explicação completa e as premissas em [`docs/analise-planilhas.md`](docs/analise-planilhas.md).
+## Próximos passos
 
-## Roadmap
+- Aplicar a migration 11 em produção e validar os fluxos autenticados.
+- Adicionar testes de integração do Supabase/RLS e testes end-to-end.
+- Instalar service worker/offline real e ícones dedicados para ampliar o suporte PWA.
+- Configurar recuperação de senha por e-mail e exigir rotação das senhas antigas.
+- Fase 2: ingestão de alertas de compra e classificação assistida por LLM.
 
-- [x] **Fase 0** — Modelagem e migração dos dados (este commit).
-- [ ] **Fase 1** — Front-end: login, cadastro rápido de transação (PWA), caixinhas, dashboards, importar CSV.
-- [ ] **Fase 2** — Automático via e-mail: ler alerta de compra → LLM extrai valor/local → registra; notifica se não souber a categoria.
-- [ ] **Fase 3** — Refino: sugestões ponderadas, alertas de teto, gráficos de progresso.
+Consulte [docs/analise-planilhas.md](docs/analise-planilhas.md) para o histórico de modelagem e as premissas financeiras.

@@ -1,6 +1,6 @@
 import { getContext } from "@/lib/profiles";
 import { brl } from "@/lib/format";
-import { markProductBought } from "../../actions";
+import { addHouseProduct, deleteHouseProduct, markProductBought } from "../../actions";
 import CasaTabs from "../CasaTabs";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +54,24 @@ export default async function Compras() {
   return (
     <div className="flex flex-col gap-4">
       <CasaTabs active="compras" />
+
+      <details className="card">
+        <summary className="font-semibold cursor-pointer">＋ Adicionar produto</summary>
+        <form action={addHouseProduct} className="flex flex-col gap-2 mt-3">
+          <input type="hidden" name="profile_id" value={casa.id} />
+          <input name="name" required className="input" placeholder="Produto" />
+          <div className="grid grid-cols-2 gap-2">
+            <input name="category" className="input" placeholder="Categoria" />
+            <input name="ideal_qty" className="input" placeholder="Quantidade" />
+            <select name="planned_month" defaultValue="" className="input">
+              <option value="">Sem mês definido</option>{MONTHS.map((month) => <option key={month} value={month}>{month}</option>)}
+            </select>
+            <input name="priority" type="number" min="1" className="input" placeholder="Prioridade" />
+            <input name="budget_base" inputMode="decimal" className="input col-span-2" placeholder="Valor orçado" />
+          </div>
+          <button className="btn">Adicionar produto</button>
+        </form>
+      </details>
 
       <div className="grid grid-cols-3 gap-2">
         <div className="card"><p className="label">Orçado</p><p className="font-bold">{brl(orcadoTotal)}</p></div>
@@ -128,6 +146,10 @@ function MonthGroup({ title, items }: { title: string; items: Product[] }) {
                 inputMode="decimal"
               />
               <button className="btn whitespace-nowrap">Comprei</button>
+            </form>
+            <form action={deleteHouseProduct} className="mt-1">
+              <input type="hidden" name="id" value={p.id} />
+              <button className="text-xs text-red-600">Excluir produto</button>
             </form>
           </div>
         ))}

@@ -20,12 +20,12 @@ type Txn = {
 export default async function Extrato({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string; tudo?: string }>;
+  searchParams: Promise<{ mes?: string; tudo?: string; importados?: string }>;
 }) {
   const { supabase, active } = await getContext();
   if (!active) return <p className="text-muted">Nenhum perfil.</p>;
 
-  const { mes: mesParam, tudo } = await searchParams;
+  const { mes: mesParam, tudo, importados } = await searchParams;
   const now = new Date();
   const mes = tudo ? "" : mesParam || `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
 
@@ -57,6 +57,12 @@ export default async function Extrato({
     <div className="flex flex-col gap-4">
       <h2 className="text-lg font-bold">Extrato — {active.name}</h2>
 
+      {importados && (
+        <div className="card text-sm text-green-700" role="status">
+          {importados} lançamento(s) importado(s) com sucesso.
+        </div>
+      )}
+
       {/* Filtro */}
       <form method="get" className="card flex flex-col gap-2">
         <label className="label mb-0">Filtrar por mês</label>
@@ -67,6 +73,7 @@ export default async function Extrato({
         <div className="flex gap-4 text-xs">
           <Link href="/extrato" className="text-brand font-semibold">Mês atual</Link>
           <Link href="/extrato?tudo=1" className="text-muted">Ver tudo (histórico)</Link>
+          <Link href="/importar" className="text-brand font-semibold">Importar CSV</Link>
         </div>
       </form>
 

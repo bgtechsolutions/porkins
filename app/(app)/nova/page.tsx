@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getContext } from "@/lib/profiles";
 import { addTransaction } from "../actions";
 
@@ -64,6 +65,7 @@ export default async function NovaTransacao() {
           Sem categoria? A gente marca pra revisar e te lembra depois.
         </p>
       </form>
+      <Link href="/importar" className="text-sm text-brand font-semibold text-center">Importar vários gastos por CSV</Link>
     </div>
   );
 }
