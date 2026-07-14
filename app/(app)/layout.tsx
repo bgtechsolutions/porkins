@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getContext } from "@/lib/profiles";
-import { switchProfile, logout } from "./actions";
+import { switchProfile } from "./actions";
 
 export default async function AppLayout({
   children,
@@ -10,10 +10,10 @@ export default async function AppLayout({
   const { profiles, active } = await getContext();
 
   return (
-    <div className="mx-auto w-full max-w-lg min-h-screen flex flex-col pb-24">
+    <div className="mx-auto w-full max-w-lg min-h-screen flex flex-col pb-[calc(6rem+env(safe-area-inset-bottom))]">
       {/* Topo: seletor de perfil */}
-      <header className="p-4 flex items-center justify-between gap-3">
-        <div className="flex gap-2 flex-wrap">
+      <header className="px-4 py-3 flex items-center gap-3 overflow-hidden">
+        <div className="flex gap-2 overflow-x-auto flex-1 pb-1">
           {profiles.map((p) => {
             const isActive = p.id === active?.id;
             return (
@@ -39,23 +39,19 @@ export default async function AppLayout({
             );
           })}
         </div>
-        <form action={logout}>
-          <button className="text-sm text-muted" title="Sair">
-            Sair
-          </button>
-        </form>
+        <Link href="/perfil" className="text-sm text-muted font-semibold whitespace-nowrap">Perfil</Link>
       </header>
 
       <main className="flex-1 px-4">{children}</main>
 
       {/* Navegação inferior */}
-      <nav className="fixed bottom-0 inset-x-0 border-t border-border bg-surface">
+      <nav className="fixed bottom-0 inset-x-0 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] z-20">
         <div className="mx-auto max-w-lg grid grid-cols-5">
           <NavLink href="/dashboard" icon="📊" label="Resumo" />
           <NavLink href="/nova" icon="➕" label="Lançar" />
           <NavLink href="/extrato" icon="📋" label="Extrato" />
           <NavLink href="/caixinhas" icon="🐖" label="Caixinhas" />
-          <NavLink href="/casa/compras" icon="🏡" label="Casa" />
+          <NavLink href="/perfil" icon="⚙️" label="Perfil" />
         </div>
       </nav>
     </div>

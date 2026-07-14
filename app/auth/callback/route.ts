@@ -10,6 +10,7 @@ function safeNext(value: string | null) {
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const next = safeNext(request.nextUrl.searchParams.get("next"));
+  const requestedProfileId = request.nextUrl.searchParams.get("profile");
   const errorUrl = new URL("/login", request.url);
   if (!code) {
     errorUrl.searchParams.set("erro", "O Google não retornou um código de acesso.");
@@ -23,8 +24,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(errorUrl);
   }
 
-  const { data: profiles } = await supabase.from("profiles").select("id,type").eq("type", "pessoal").limit(1);
-  const profile = profiles?.[0];
+  await supabase.rpc("fn_accept_profile_invitations");
+  const { data: existingConnection } = await createAdminClient()
+    .from("gmail_connections")
+    .select("profile_id")
+    .eq("user_id", data.user.id)
+    .maybeSingle();
+  const { data: profiles } = await supabase.from("profiles").select("id,type");
+  const profile = profiles?.find((item) => item.id === requestedProfileId)
+    ?? profiles?.find((item) => item.id === existingConnection?.profile_id)
+    ?? profiles?.find((item) => item.type === "pessoal")
+    ?? profiles?.[0];
   if (!profile) {
     await supabase.auth.signOut();
     errorUrl.searchParams.set("erro", "Este Gmail ainda não está vinculado. Entre uma última vez com senha e conecte-o em Perfil.");
@@ -47,6 +57,21 @@ export async function GET(request: NextRequest) {
     if (saveError) {
       errorUrl.searchParams.set("erro", "Google conectado, mas não foi possível preparar a sincronização do Gmail.");
       return NextResponse.redirect(errorUrl);
+    }
+    const { data: defaultRoute } = await admin
+      .from("gmail_import_routes")
+      .select("id")
+      .eq("user_id", data.user.id)
+      .eq("is_default", true)
+      .eq("active", true)
+      .maybeSingle();
+    if (!defaultRoute) {
+      await admin.from("gmail_import_routes").upsert({
+        user_id: data.user.id,
+        profile_id: profile.id,
+        match_label: "*",
+        is_default: true,
+      }, { onConflict: "user_id,profile_id,match_label" });
     }
   }
 

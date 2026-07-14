@@ -3,17 +3,20 @@ import { getContext } from "@/lib/profiles";
 import { addTransaction } from "../actions";
 
 export const dynamic = "force-dynamic";
+type Member = { user_id: string; display_name: string; email: string; role: string };
 
 export default async function NovaTransacao() {
-  const { supabase, active } = await getContext();
+  const { supabase, active, userId } = await getContext();
   if (!active) return <p className="text-muted">Nenhum perfil.</p>;
 
-  const [{ data: accounts }, { data: categories }] = await Promise.all([
+  const [{ data: accounts }, { data: categories }, { data: members }] = await Promise.all([
     supabase.from("accounts").select("id,name").eq("profile_id", active.id).eq("active", true).order("name"),
     supabase.from("categories").select("id,name").eq("is_income", false).order("name"),
+    supabase.rpc("fn_profile_member_directory", { p_profile_id: active.id }),
   ]);
 
   const today = new Date().toISOString().slice(0, 10);
+  const directory = (members ?? []) as Member[];
 
   return (
     <div className="flex flex-col gap-4">
@@ -21,6 +24,7 @@ export default async function NovaTransacao() {
 
       <form action={addTransaction} className="card flex flex-col gap-4">
         <input type="hidden" name="profile_id" value={active.id} />
+        <input type="hidden" name="transaction_type" value="expense" />
 
         <div>
           <label className="label" htmlFor="amount">Valor (R$)</label>
@@ -59,6 +63,22 @@ export default async function NovaTransacao() {
             <input id="occurred_at" name="occurred_at" type="date" defaultValue={today} className="input" />
           </div>
         </div>
+
+        {directory.some((member) => member.user_id !== userId) && (
+          <details className="rounded-xl border border-border p-3">
+            <summary className="font-semibold text-sm cursor-pointer">Dividir com alguém deste espaço</summary>
+            <p className="text-xs text-muted mt-2">Você pagou a compra. Escolha quem deve devolver uma parte e informe o valor.</p>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <select name="debtor_user_id" className="input" defaultValue="">
+                <option value="">Escolha a pessoa</option>
+                {directory.filter((member) => member.user_id !== userId).map((member) => (
+                  <option key={member.user_id} value={member.user_id}>{member.display_name}</option>
+                ))}
+              </select>
+              <input name="split_amount" type="text" inputMode="decimal" className="input" placeholder="Quanto deve (R$)" />
+            </div>
+          </details>
+        )}
 
         <button type="submit" className="btn">Salvar gasto</button>
         <p className="text-xs text-muted text-center">
