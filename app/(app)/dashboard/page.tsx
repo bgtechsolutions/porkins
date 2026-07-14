@@ -117,7 +117,7 @@ export default async function Dashboard() {
               >
                 <span>
                   {i === 0 && (
-                    <span className="mr-2 text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--color-brand)", color: "#fff" }}>
+                    <span className="mr-2 text-xs px-2 py-0.5 rounded-full bg-brand-solid text-brand-foreground">
                       TOP 1
                     </span>
                   )}
@@ -146,7 +146,7 @@ export default async function Dashboard() {
             <p className="text-sm text-muted">de {brl(joint.meta_total)}</p>
           </div>
           <div className="bar">
-            <span style={{ width: `${Math.min(joint.progresso * 100, 100)}%`, background: "var(--color-brand)" }} />
+            <span style={{ width: `${Math.min(joint.progresso * 100, 100)}%`, background: "var(--brand-solid)" }} />
           </div>
           <p className="text-xs text-muted mt-1">{pct(joint.progresso)} concluído</p>
         </div>
@@ -181,7 +181,7 @@ export default async function Dashboard() {
                 <span className="text-muted">{brl(g.current_amount)} / {brl(g.target_amount)}</span>
               </div>
               <div className="bar">
-                <span style={{ width: `${Math.min(Number(g.progresso) * 100, 100)}%`, background: active.color ?? "var(--color-brand)" }} />
+                <span style={{ width: `${Math.min(Number(g.progresso) * 100, 100)}%`, background: active.color ?? "var(--brand-solid)" }} />
               </div>
             </div>
           ))}
@@ -196,14 +196,14 @@ function RuleRow({ label, atual, limite, teto }: { label: string; atual: number;
   const ratio = limite > 0 ? atual / limite : 0;
   const over = teto ? atual > limite : false;
   const hitGoal = !teto && atual >= limite && limite > 0;
-  const color = over ? "#dc2626" : hitGoal ? "#16a34a" : "var(--color-brand)";
+  const color = over ? "var(--danger)" : hitGoal ? "var(--success)" : "var(--brand)";
   return (
     <div>
       <div className="flex justify-between text-sm mb-1">
         <span className="font-medium">
           {label}
-          {over && <span className="ml-1 text-xs text-red-600 font-semibold">passou do teto!</span>}
-          {hitGoal && <span className="ml-1 text-xs text-green-600 font-semibold">meta batida 👏</span>}
+          {over && <span className="ml-1 text-xs text-danger font-semibold">passou do teto!</span>}
+          {hitGoal && <span className="ml-1 text-xs text-success font-semibold">meta batida 👏</span>}
         </span>
         <span className="text-muted">{brl(atual)} / {brl(limite)}</span>
       </div>

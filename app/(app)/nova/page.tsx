@@ -69,13 +69,13 @@ export default async function NovaTransacao() {
             <summary className="font-semibold text-sm cursor-pointer">Dividir com alguém deste espaço</summary>
             <p className="text-xs text-muted mt-2">Você pagou a compra. Escolha quem deve devolver uma parte e informe o valor.</p>
             <div className="grid grid-cols-2 gap-2 mt-3">
-              <select name="debtor_user_id" className="input" defaultValue="">
+              <select name="debtor_user_id" aria-label="Pessoa que participa da divisão" className="input" defaultValue="">
                 <option value="">Escolha a pessoa</option>
                 {directory.filter((member) => member.user_id !== userId).map((member) => (
                   <option key={member.user_id} value={member.user_id}>{member.display_name}</option>
                 ))}
               </select>
-              <input name="split_amount" type="text" inputMode="decimal" className="input" placeholder="Quanto deve (R$)" />
+              <input name="split_amount" aria-label="Valor devido pela outra pessoa" type="text" inputMode="decimal" className="input" placeholder="Quanto deve (R$)" />
             </div>
           </details>
         )}
