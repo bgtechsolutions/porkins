@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Porkin",
-  description: "Controle financeiro do Gabriel, da Bárbara e da Casa",
+  description: "Controle financeiro pessoal, compartilhado e automático",
 };
 
 export const viewport: Viewport = {

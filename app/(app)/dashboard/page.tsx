@@ -8,7 +8,8 @@ export default async function Dashboard() {
   const { supabase, active } = await getContext();
   if (!active) return <p className="text-muted">Nenhum perfil encontrado.</p>;
 
-  const isCasa = active.type === "compartilhado";
+  const isPersonal = active.context_type === "personal";
+  const isCasa = active.context_type === "household";
   const now = new Date();
   const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 
@@ -28,7 +29,7 @@ export default async function Dashboard() {
   let rules: { bucket: string; percentage: number }[] = [];
   let investMonth = 0;
   let ranking: { name: string; total: number }[] = [];
-  if (!isCasa) {
+  if (isPersonal) {
     const [{ data: r }, { data: contribs }, { data: txns }] = await Promise.all([
       supabase.from("allocation_rules").select("bucket,percentage").eq("profile_id", active.id),
       supabase.from("contributions").select("amount").eq("profile_id", active.id).gte("contributed_at", firstOfMonth),
@@ -70,7 +71,7 @@ export default async function Dashboard() {
       <h2 className="text-lg font-bold">Olá! Resumo — {active.name}</h2>
 
       <div className="grid grid-cols-2 gap-3">
-        {!isCasa && (
+        {isPersonal && (
           <Link href="/renda" className="card">
             <p className="label">Renda mensal ✏️</p>
             <p className="text-xl font-bold">{brl(income)}</p>
@@ -84,7 +85,7 @@ export default async function Dashboard() {
       </div>
 
       {/* Regra 60/30/10 */}
-      {!isCasa && income > 0 && (
+      {isPersonal && income > 0 && (
         <div className="card">
           <div className="flex justify-between items-center mb-3">
             <p className="label mb-0">Regra dos tetos</p>
@@ -104,7 +105,7 @@ export default async function Dashboard() {
       )}
 
       {/* Ranking de categorias */}
-      {!isCasa && ranking.length > 0 && (
+      {isPersonal && ranking.length > 0 && (
         <div className="card">
           <p className="label mb-2">Onde você mais gastou este mês</p>
           <div className="flex flex-col gap-2">
