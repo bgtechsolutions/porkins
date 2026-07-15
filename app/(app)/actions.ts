@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ACTIVE_COOKIE, getContext } from "@/lib/profiles";
 import { parseBRL } from "@/lib/format";
-import { parseTransactionsCsv } from "@/lib/csv";
+import { decodeCsvBytes, parseTransactionsCsv } from "@/lib/csv";
 import { GOOGLE_SCOPES } from "@/lib/gmail/oauth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { renewGmailWatch, syncGmailConnection } from "@/lib/gmail/sync";
@@ -53,7 +53,7 @@ async function requireProfile(profileId: string): Promise<AppSupabase> {
 }
 
 async function requireOwnedRow(
-  table: "transactions" | "income_sources" | "goals" | "house_products" | "house_costs",
+  table: "transactions" | "income_sources" | "goals" | "house_products" | "house_costs" | "accounts",
   id: string,
 ) {
   const { supabase, profiles } = await getContext();
@@ -409,24 +409,48 @@ export async function toggleBillPaid(formData: FormData) {
 export async function importTransactionsCsv(formData: FormData) {
   const profileId = String(formData.get("profile_id") ?? "");
   const supabase = await requireProfile(profileId);
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) fail("Selecione um arquivo CSV.");
-  if (file.size > 1024 * 1024) fail("O CSV deve ter no máximo 1 MB.");
+  const selected = formData.getAll("files").filter((item): item is File => item instanceof File && item.size > 0);
+  const fallback = formData.get("file");
+  const files = selected.length > 0 ? selected : fallback instanceof File && fallback.size > 0 ? [fallback] : [];
+  if (files.length === 0) fail("Selecione pelo menos um arquivo CSV.");
+  if (files.length > 60) fail("Importe no máximo 60 arquivos por vez.");
+  if (files.some((file) => file.size > 1024 * 1024)) fail("Cada CSV deve ter no máximo 1 MB.");
+  if (files.reduce((sum, file) => sum + file.size, 0) > 5 * 1024 * 1024) fail("O conjunto de CSVs deve ter no máximo 5 MB.");
 
-  const rows = parseTransactionsCsv(await file.text());
-  if (rows.length > 500) fail("Importe no máximo 500 lançamentos por vez.");
+  const rows = (await Promise.all(files.map(async (file) =>
+    parseTransactionsCsv(decodeCsvBytes(await file.arrayBuffer()), { fileName: file.name }),
+  ))).flat();
+  if (rows.length > 5000) fail("Importe no máximo 5.000 lançamentos por vez.");
 
   const [{ data: categories, error: categoryError }, { data: accounts, error: accountError }] = await Promise.all([
-    supabase.from("categories").select("id,name").eq("is_income", false),
-    supabase.from("accounts").select("id,name").eq("profile_id", profileId),
+    supabase.from("categories").select("id,name"),
+    supabase.from("accounts").select("id,name,institution").eq("profile_id", profileId),
   ]);
   check(categoryError, "Não foi possível carregar as categorias");
   check(accountError, "Não foi possível carregar as contas");
   const key = (value: string | null) => value?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() ?? "";
   const categoryMap = new Map((categories ?? []).map((item) => [key(item.name), item.id]));
   const accountMap = new Map((accounts ?? []).map((item) => [key(item.name), item.id]));
+  const knownAccounts = [...new Map(rows.filter((row) => row.accountName && row.institution).map((row) => [key(row.accountName), row])).values()];
+  for (const row of knownAccounts) {
+    if (!row.accountName || accountMap.has(key(row.accountName))) continue;
+    const { data, error } = await supabase.from("accounts").insert({
+      profile_id: profileId,
+      name: row.accountName,
+      institution: row.institution,
+      kind: row.accountName.includes("Crédito") ? "credito" : row.accountName.includes("Débito") ? "debito" : "conta",
+    }).select("id").single();
+    check(error, `Não foi possível criar a conta ${row.accountName}`);
+    if (!data) throw new Error(`A conta ${row.accountName} foi criada sem retornar um identificador`);
+    accountMap.set(key(row.accountName), data.id);
+  }
   const payload = rows.map((row) => {
-    const categoryId = categoryMap.get(key(row.categoryName)) ?? null;
+    const categoryName = row.transactionType === "income" ? "Salário / Renda"
+      : row.transactionType === "transfer_in" ? "Transferência recebida"
+      : row.transactionType === "transfer_out" ? "Transferência enviada"
+      : row.transactionType === "card_payment" ? "Pagamento de fatura"
+      : row.categoryName;
+    const categoryId = categoryMap.get(key(categoryName)) ?? null;
     return {
       profile_id: profileId,
       amount: row.amount,
@@ -434,16 +458,56 @@ export async function importTransactionsCsv(formData: FormData) {
       occurred_at: row.occurredAt,
       category_id: categoryId,
       account_id: accountMap.get(key(row.accountName)) ?? null,
+      transaction_type: row.transactionType,
+      counterparty: row.counterparty,
+      account_label: row.accountName,
+      external_id: row.externalId,
+      import_fingerprint: row.importFingerprint,
       source: "csv" as const,
-      needs_review: !categoryId,
-      raw_text: null,
+      needs_review: row.transactionType === "expense" && !categoryId,
+      raw_text: row.rawText,
+      metadata: { importer_version: 2, institution: row.institution, signed_amount: row.signedAmount },
     };
   });
-  const { error } = await supabase.from("transactions").insert(payload);
-  check(error, "Não foi possível importar o CSV");
+  let inserted = 0;
+  for (let start = 0; start < payload.length; start += 250) {
+    const { data, error } = await supabase.from("transactions")
+      .upsert(payload.slice(start, start + 250), { onConflict: "profile_id,import_fingerprint", ignoreDuplicates: true })
+      .select("id");
+    check(error, "Não foi possível importar o CSV");
+    inserted += data?.length ?? 0;
+  }
   revalidatePath("/dashboard");
   revalidatePath("/extrato");
-  redirect(`/extrato?importados=${payload.length}`);
+  revalidatePath("/contas");
+  revalidatePath("/recorrencias");
+  redirect(`/extrato?importados=${inserted}&ignorados=${payload.length - inserted}`);
+}
+
+export async function updateAccountFinancialSettings(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  const supabase = await requireOwnedRow("accounts", id);
+  const optionalMoney = (name: string) => {
+    const raw = String(formData.get(name) ?? "").trim();
+    return raw ? parseBRL(raw) : null;
+  };
+  const optionalDay = (name: string) => {
+    const raw = String(formData.get(name) ?? "").trim();
+    if (!raw) return null;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 1 || value > 31) fail("Use um dia entre 1 e 31.");
+    return value;
+  };
+  const { error } = await supabase.from("accounts").update({
+    current_balance: optionalMoney("current_balance"),
+    balance_updated_at: new Date().toISOString(),
+    credit_limit: optionalMoney("credit_limit"),
+    statement_closing_day: optionalDay("statement_closing_day"),
+    due_day: optionalDay("due_day"),
+  }).eq("id", id);
+  check(error, "Não foi possível atualizar a conta");
+  revalidatePath("/contas");
+  revalidatePath("/dashboard");
 }
 
 export async function addGoal(formData: FormData) {

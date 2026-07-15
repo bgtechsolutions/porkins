@@ -39,12 +39,12 @@ const TYPE_UI: Record<TransactionType, { label: string; sign: string; color: str
 export default async function Extrato({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string; tudo?: string; importados?: string; tipo?: string; criado?: string }>;
+  searchParams: Promise<{ mes?: string; tudo?: string; importados?: string; ignorados?: string; tipo?: string; criado?: string }>;
 }) {
   const { supabase, active, userId, profiles } = await getContext();
   if (!active) return <p className="text-muted">Nenhum perfil.</p>;
 
-  const { mes: mesParam, tudo, importados, criado, tipo = "todos" } = await searchParams;
+  const { mes: mesParam, tudo, importados, ignorados, criado, tipo = "todos" } = await searchParams;
   const now = new Date();
   const mes = tudo ? "" : mesParam || `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
   let query = supabase
@@ -75,7 +75,8 @@ export default async function Extrato({
   const sum = (types: TransactionType[]) => rows
     .filter((item) => types.includes(item.transaction_type))
     .reduce((total, item) => total + Number(item.amount), 0);
-  const entries = sum(["income", "transfer_in"]);
+  const income = sum(["income"]);
+  const received = sum(["transfer_in"]);
   const expenses = sum(["expense"]);
   const movements = sum(["transfer_out", "card_payment"]);
   const relationName = (value: { name: string } | { name: string }[] | null) =>
@@ -96,6 +97,7 @@ export default async function Extrato({
       </div>
 
       {importados && <div className="status-success" role="status">{importados} lançamento(s) importado(s).</div>}
+      {Number(ignorados ?? 0) > 0 && <div className="status-success" role="status">{ignorados} lançamento(s) já existiam e não foram duplicados.</div>}
       {criado && <div className="status-success" role="status">Compra salva{Number(criado) > 1 ? ` em ${criado} parcelas` : ""}. Os acertos já estão disponíveis para os participantes.</div>}
 
       <form method="get" className="card flex gap-2 items-end">
@@ -107,8 +109,9 @@ export default async function Extrato({
         <button type="submit" className="btn">Aplicar</button>
       </form>
 
-      <div className="grid grid-cols-3 gap-2">
-        <Summary label="Entradas" value={entries} className="text-success" />
+      <div className="grid grid-cols-2 gap-2">
+        <Summary label="Renda" value={income} className="text-success" />
+        <Summary label="Pix recebidos" value={received} className="text-info" />
         <Summary label="Gastos" value={expenses} className="text-danger" />
         <Summary label="Movimentações" value={movements} className="text-foreground" />
       </div>

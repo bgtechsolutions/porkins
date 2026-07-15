@@ -20,11 +20,13 @@ export default async function Dashboard({
   const now = new Date();
   const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 
-  const [{ data: incomes }, { data: spending }, { data: goals }, { data: obligations }] = await Promise.all([
+  const [{ data: incomes }, { data: spending }, { data: goals }, { data: obligations }, { data: recurring }, { data: accountFlow }] = await Promise.all([
     supabase.from("income_sources").select("amount").eq("profile_id", active.id).eq("active", true),
     supabase.from("v_bucket_spending_current").select("bucket,total").eq("profile_id", active.id),
     supabase.from("v_goal_progress").select("*").eq("profile_id", active.id).order("weight", { ascending: false }),
     supabase.rpc("fn_profile_obligations"),
+    supabase.from("v_recurring_candidates").select("recurrence_key").eq("profile_id", active.id).limit(30),
+    supabase.from("v_account_monthly_flow").select("income,expenses,transfers_in,transfers_out,card_payments").eq("profile_id", active.id).eq("month", firstOfMonth),
   ]);
 
   const income = (incomes ?? []).reduce((s, r) => s + Number(r.amount), 0);
@@ -35,6 +37,9 @@ export default async function Dashboard({
   const pendingObligations = ((obligations ?? []) as ObligationSummary[]).filter((item) => item.status === "pending");
   const amountOwed = pendingObligations.filter((item) => item.direction === "owe").reduce((sum, item) => sum + Number(item.amount), 0);
   const amountReceivable = pendingObligations.filter((item) => item.direction === "receive").reduce((sum, item) => sum + Number(item.amount), 0);
+  const bankIncome = (accountFlow ?? []).reduce((sum, item) => sum + Number(item.income), 0);
+  const pixReceived = (accountFlow ?? []).reduce((sum, item) => sum + Number(item.transfers_in), 0);
+  const bankExpenses = (accountFlow ?? []).reduce((sum, item) => sum + Number(item.expenses), 0);
 
   // ---- Extras dos perfis pessoais: regra 60/30/10 + ranking ----
   let rules: { bucket: string; percentage: number }[] = [];
@@ -108,6 +113,19 @@ export default async function Dashboard({
           <span className="text-brand font-bold" aria-hidden="true">→</span>
         </div>
       </Link>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Link href="/contas" className="card">
+          <p className="label">Contas e cartões</p>
+          <p className="text-lg font-bold">{brl(bankIncome - bankExpenses)}</p>
+          <p className="text-xs text-muted mt-1">resultado bancário · Pix recebidos {brl(pixReceived)}</p>
+        </Link>
+        <Link href="/recorrencias" className="card">
+          <p className="label">Recorrências</p>
+          <p className="text-lg font-bold">{(recurring ?? []).length}</p>
+          <p className="text-xs text-muted mt-1">padrões e parcelas futuras →</p>
+        </Link>
+      </div>
 
       {/* Regra 60/30/10 */}
       {isPersonal && income > 0 && (
