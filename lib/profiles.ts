@@ -22,9 +22,6 @@ export async function getContext() {
   const claims = claimsData?.claims;
   if (!claims) redirect("/login");
 
-  // Convites pendentes passam a valer assim que o e-mail convidado entra.
-  await supabase.rpc("fn_accept_profile_invitations");
-
   const { data } = await supabase
     .from("profiles")
     .select("id,name,type,color,monthly_income,profile_type,context_type");

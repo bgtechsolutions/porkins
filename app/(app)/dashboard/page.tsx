@@ -4,19 +4,29 @@ import { brl, pct } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function Dashboard() {
+type ObligationSummary = { status: string; direction: "owe" | "receive"; amount: number };
+
+export default async function Dashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ convite?: string }>;
+}) {
   const { supabase, active } = await getContext();
   if (!active) return <p className="text-muted">Nenhum perfil encontrado.</p>;
+  const params = await searchParams;
 
   const isPersonal = active.context_type === "personal";
   const isCasa = active.context_type === "household";
   const now = new Date();
   const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 
-  const [{ data: incomes }, { data: spending }, { data: goals }] = await Promise.all([
+  const [{ data: incomes }, { data: spending }, { data: goals }, { data: obligations }, { data: recurring }, { data: accountFlow }] = await Promise.all([
     supabase.from("income_sources").select("amount").eq("profile_id", active.id).eq("active", true),
     supabase.from("v_bucket_spending_current").select("bucket,total").eq("profile_id", active.id),
     supabase.from("v_goal_progress").select("*").eq("profile_id", active.id).order("weight", { ascending: false }),
+    supabase.rpc("fn_profile_obligations"),
+    supabase.from("v_recurring_candidates").select("recurrence_key").eq("profile_id", active.id).limit(30),
+    supabase.from("v_account_monthly_flow").select("income,expenses,transfers_in,transfers_out,card_payments").eq("profile_id", active.id).eq("month", firstOfMonth),
   ]);
 
   const income = (incomes ?? []).reduce((s, r) => s + Number(r.amount), 0);
@@ -24,6 +34,12 @@ export default async function Dashboard() {
   const bucketTotal = (b: string) => Number((spending ?? []).find((r) => r.bucket === b)?.total ?? 0);
   const activeGoals = (goals ?? []).filter((g) => g.status !== "concluida");
   const totalSaved = activeGoals.reduce((s, g) => s + Number(g.current_amount), 0);
+  const pendingObligations = ((obligations ?? []) as ObligationSummary[]).filter((item) => item.status === "pending");
+  const amountOwed = pendingObligations.filter((item) => item.direction === "owe").reduce((sum, item) => sum + Number(item.amount), 0);
+  const amountReceivable = pendingObligations.filter((item) => item.direction === "receive").reduce((sum, item) => sum + Number(item.amount), 0);
+  const bankIncome = (accountFlow ?? []).reduce((sum, item) => sum + Number(item.income), 0);
+  const pixReceived = (accountFlow ?? []).reduce((sum, item) => sum + Number(item.transfers_in), 0);
+  const bankExpenses = (accountFlow ?? []).reduce((sum, item) => sum + Number(item.expenses), 0);
 
   // ---- Extras dos perfis pessoais: regra 60/30/10 + ranking ----
   let rules: { bucket: string; percentage: number }[] = [];
@@ -55,8 +71,8 @@ export default async function Dashboard() {
   if (isCasa) {
     const [{ data: j }, { data: costs }, { data: products }] = await Promise.all([
       supabase.from("v_joint_goals").select("*").eq("joint_group", "casa_futura").maybeSingle(),
-      supabase.from("house_costs").select("expected_value").eq("cost_type", "recorrente"),
-      supabase.from("house_products").select("real_value,budget_base"),
+      supabase.from("house_costs").select("expected_value").eq("profile_id", active.id).eq("cost_type", "recorrente"),
+      supabase.from("house_products").select("real_value,budget_base").eq("profile_id", active.id),
     ]);
     if (j) joint = { meta_total: Number(j.meta_total), atual_total: Number(j.atual_total), progresso: Number(j.progresso) };
     houseMonthly = (costs ?? []).reduce((s, r) => s + Number(r.expected_value ?? 0), 0);
@@ -70,6 +86,9 @@ export default async function Dashboard() {
     <div className="flex flex-col gap-4">
       <h2 className="text-lg font-bold">Olá! Resumo — {active.name}</h2>
 
+      {params.convite === "accepted" && <div className="status-success" role="status">Convite aceito. O novo espaço já está disponível.</div>}
+      {params.convite === "declined" && <div className="status-success" role="status">Convite recusado.</div>}
+
       <div className="grid grid-cols-2 gap-3">
         {isPersonal && (
           <Link href="/renda" className="card">
@@ -81,6 +100,30 @@ export default async function Dashboard() {
           <p className="label">Gastos do mês 📋</p>
           <p className="text-xl font-bold">{brl(spent)}</p>
           {income > 0 && <p className="text-xs text-muted mt-1">{pct(spent / income)} da renda</p>}
+        </Link>
+      </div>
+
+      <Link href="/acertos" className="card">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="label">Acertos compartilhados</p>
+            <p className="text-sm"><strong className="text-warning">Você deve {brl(amountOwed)}</strong></p>
+            <p className="text-sm"><strong className="text-success">Devem para você {brl(amountReceivable)}</strong></p>
+          </div>
+          <span className="text-brand font-bold" aria-hidden="true">→</span>
+        </div>
+      </Link>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Link href="/contas" className="card">
+          <p className="label">Contas e cartões</p>
+          <p className="text-lg font-bold">{brl(bankIncome - bankExpenses)}</p>
+          <p className="text-xs text-muted mt-1">resultado bancário · Pix recebidos {brl(pixReceived)}</p>
+        </Link>
+        <Link href="/recorrencias" className="card">
+          <p className="label">Recorrências</p>
+          <p className="text-lg font-bold">{(recurring ?? []).length}</p>
+          <p className="text-xs text-muted mt-1">padrões e parcelas futuras →</p>
         </Link>
       </div>
 

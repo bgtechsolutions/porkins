@@ -22,6 +22,8 @@ export const dynamic = "force-dynamic";
 type Rule = { bucket: string; percentage: number };
 type Account = { id: string; profile_id: string; name: string; kind: string; institution: string | null; ownership: string };
 type Route = { id: string; profile_id: string; account_id: string | null; match_label: string; is_default: boolean };
+type DirectoryMember = { user_id: string; email: string; display_name: string; role: string };
+type PendingInvitation = { id: string; email: string; created_at: string };
 
 const TYPES = [
   { key: "razoavel", label: "Razoável", desc: "60 / 30 / 10 — equilíbrio", emoji: "🙂" },
@@ -44,7 +46,7 @@ export default async function Perfil({
   const section = params.secao ?? "conta";
   const admin = createAdminClient();
   const profileIds = profiles.map((profile) => profile.id);
-  const [rulesResult, identityResult, gmailResult, accountsResult, membersResult, routesResult] = await Promise.all([
+  const [rulesResult, identityResult, gmailResult, accountsResult, membersResult, routesResult, directoryResult, invitationsResult] = await Promise.all([
     supabase.from("allocation_rules").select("bucket,percentage").eq("profile_id", active.id),
     supabase.auth.getUserIdentities(),
     admin.from("gmail_connections").select("gmail_email,last_synced_at,last_error,watch_expiration").eq("user_id", userId).maybeSingle(),
@@ -55,11 +57,15 @@ export default async function Perfil({
       ? supabase.from("profile_members").select("profile_id,user_id,role").in("profile_id", profileIds)
       : Promise.resolve({ data: [] }),
     supabase.from("gmail_import_routes").select("id,profile_id,account_id,match_label,is_default").eq("user_id", userId).eq("active", true).order("priority"),
+    supabase.rpc("fn_profile_member_directory", { p_profile_id: active.id }),
+    supabase.from("profile_invitations").select("id,email,created_at").eq("profile_id", active.id).eq("status", "pending").order("created_at", { ascending: false }),
   ]);
   const rules = (rulesResult.data ?? []) as Rule[];
   const accounts = (accountsResult.data ?? []) as Account[];
   const routes = (routesResult.data ?? []) as Route[];
   const members = membersResult.data ?? [];
+  const directory = (directoryResult.data ?? []) as DirectoryMember[];
+  const pendingInvitations = (invitationsResult.data ?? []) as PendingInvitation[];
   const gmail = gmailResult.data;
   const googleIdentity = identityResult.data?.identities.find((identity) => identity.provider === "google");
   const googleEmail = String(googleIdentity?.identity_data?.email ?? gmail?.gmail_email ?? "");
@@ -159,7 +165,20 @@ export default async function Perfil({
           {isShared && (
             <div className="card">
               <p className="font-semibold">Membros de {active.name}</p>
-              <p className="text-xs text-muted mt-1">Quem entrar com este e-mail receberá acesso ao espaço compartilhado.</p>
+              <p className="text-xs text-muted mt-1">A pessoa receberá uma notificação no Porkins para aceitar ou recusar.</p>
+              <div className="flex flex-col gap-2 mt-3">
+                {directory.map((member) => (
+                  <div key={member.user_id} className="surface-muted rounded-xl p-3 flex justify-between gap-3">
+                    <div className="min-w-0"><p className="text-sm font-semibold truncate">{member.display_name}</p><p className="text-xs text-muted truncate">{member.email}</p></div>
+                    <span className="badge-neutral self-center">{member.role === "owner" ? "Proprietário" : "Membro"}</span>
+                  </div>
+                ))}
+                {pendingInvitations.map((invitation) => (
+                  <div key={invitation.id} className="status-warning flex justify-between gap-3">
+                    <span className="truncate">{invitation.email}</span><span className="whitespace-nowrap">Aguardando aceite</span>
+                  </div>
+                ))}
+              </div>
               <form action={inviteProfileMember} className="flex gap-2 mt-3">
                 <input type="hidden" name="profile_id" value={active.id} />
                 <input name="email" aria-label="E-mail do novo membro" type="email" required className="input" placeholder="email@exemplo.com" />
@@ -257,6 +276,7 @@ function Status({ params }: { params: Record<string, string | undefined> }) {
     : params.gmail === "reprocessed" ? "E-mails relidos e lançamentos atualizados."
     : params.espaco === "created" ? "Espaço criado."
     : params.membro === "added" ? "Membro adicionado."
+    : params.membro === "member" ? "Esta pessoa já participa do espaço."
     : params.membro === "invited" ? "Convite registrado; o acesso será liberado no primeiro login."
     : params.conta === "created" ? "Conta adicionada."
     : params.rota === "saved" ? "Regra de importação salva."

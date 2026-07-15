@@ -6,14 +6,16 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ACTIVE_COOKIE, getContext } from "@/lib/profiles";
 import { parseBRL } from "@/lib/format";
-import { parseTransactionsCsv } from "@/lib/csv";
+import { decodeCsvBytes, parseTransactionsCsv } from "@/lib/csv";
 import { GOOGLE_SCOPES } from "@/lib/gmail/oauth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { renewGmailWatch, syncGmailConnection } from "@/lib/gmail/sync";
 import type { GmailConnection } from "@/lib/gmail/google";
+import { addMonthsToDate, allocateInstallmentShares, splitInstallments } from "@/lib/transactions";
 
 type AppSupabase = Awaited<ReturnType<typeof createClient>>;
 const TRANSACTION_TYPES = ["expense", "income", "transfer_out", "transfer_in", "card_payment"] as const;
+type SplitConfig = { userId: string; percentage: number };
 
 function transactionType(value: FormDataEntryValue | null) {
   const type = String(value ?? "expense");
@@ -28,6 +30,21 @@ function check(error: { message: string } | null, context: string) {
   if (error) fail(`${context}: ${error.message}`);
 }
 
+function splitConfig(formData: FormData): SplitConfig[] {
+  const raw = String(formData.get("split_config") ?? "");
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as { userId?: unknown; percentage?: unknown }[];
+    if (!Array.isArray(parsed)) fail("A divisao informada e invalida.");
+    return parsed.map((item) => ({
+      userId: String(item.userId ?? ""),
+      percentage: Number(item.percentage ?? 0),
+    })).filter((item) => item.userId && item.percentage > 0);
+  } catch {
+    fail("A divisao informada e invalida.");
+  }
+}
+
 async function requireProfile(profileId: string): Promise<AppSupabase> {
   if (!profileId) fail("Perfil não informado.");
   const { supabase, profiles } = await getContext();
@@ -36,7 +53,7 @@ async function requireProfile(profileId: string): Promise<AppSupabase> {
 }
 
 async function requireOwnedRow(
-  table: "transactions" | "income_sources" | "goals" | "house_products" | "house_costs",
+  table: "transactions" | "income_sources" | "goals" | "house_products" | "house_costs" | "accounts",
   id: string,
 ) {
   const { supabase, profiles } = await getContext();
@@ -62,37 +79,101 @@ export async function logout() {
 }
 
 export async function addTransaction(formData: FormData) {
-  const profile_id = String(formData.get("profile_id") ?? "");
-  const supabase = await requireProfile(profile_id);
-  const { userId } = await getContext();
-  const amount = parseBRL(formData.get("amount"));
-  if (amount <= 0) fail("Informe um valor maior que zero.");
-  const description = String(formData.get("description") ?? "").trim() || null;
-  const category_id = String(formData.get("category_id") ?? "") || null;
-  const account_id = String(formData.get("account_id") ?? "") || null;
-  const txnType = transactionType(formData.get("transaction_type"));
-  const occurred_at =
-    String(formData.get("occurred_at") ?? "") ||
-    new Date().toISOString().slice(0, 10);
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const { userId, profiles } = await getContext();
+  const totalAmount = parseBRL(formData.get("amount"));
+  if (totalAmount <= 0) fail("Informe um valor maior que zero.");
 
-  const { data: transaction, error } = await supabase.from("transactions").insert({
-    profile_id,
+  const description = String(formData.get("description") ?? "").trim() || null;
+  const categoryId = String(formData.get("category_id") ?? "") || null;
+  const accountId = String(formData.get("account_id") ?? "") || null;
+  const destinationProfileId = String(formData.get("destination_profile_id") ?? "") || null;
+  const txnType = transactionType(formData.get("transaction_type"));
+  const occurredAt = String(formData.get("occurred_at") ?? "") || new Date().toISOString().slice(0, 10);
+  const installmentCount = Math.max(1, Math.min(60, Number(formData.get("installment_count") ?? 1) || 1));
+  const splits = splitConfig(formData);
+  const sourceProfile = profiles.find((profile) => profile.id === profileId);
+  if (!sourceProfile) fail("Perfil de origem nao encontrado.");
+  const allocationProfileId = destinationProfileId
+    ?? (sourceProfile.context_type === "personal" ? null : profileId);
+
+  if (destinationProfileId && !profiles.some((profile) => profile.id === destinationProfileId)) {
+    fail("Voce nao participa do espaco escolhido.");
+  }
+  if (splits.length && !allocationProfileId) {
+    fail("Escolha Casa, empresa ou outro espaco compartilhado para dividir o gasto.");
+  }
+  if (accountId) {
+    const { data: account } = await supabase.from("accounts")
+      .select("id").eq("id", accountId).eq("profile_id", profileId).maybeSingle();
+    if (!account) fail("A conta escolhida nao pertence ao perfil de origem.");
+  }
+
+  const splitTotal = splits.reduce((sum, item) => sum + item.percentage, 0);
+  if (splits.some((item) => !Number.isFinite(item.percentage) || item.percentage <= 0 || item.percentage > 100)) {
+    fail("Informe percentuais validos para a divisao.");
+  }
+  if (splitTotal > 100.001) fail("A soma das partes nao pode superar 100%.");
+  if (splits.some((item) => item.userId === userId)) fail("Sua parte e calculada automaticamente.");
+
+  if (allocationProfileId && splits.length) {
+    const uniqueMembers = [...new Set(splits.map((item) => item.userId))];
+    const { data: members } = await supabase.from("profile_members")
+      .select("user_id").eq("profile_id", allocationProfileId).in("user_id", uniqueMembers);
+    if ((members ?? []).length !== uniqueMembers.length) {
+      fail("Uma das pessoas escolhidas nao faz parte do espaco de destino.");
+    }
+  }
+
+  const groupId = installmentCount > 1 ? crypto.randomUUID() : null;
+  const installmentAmounts = splitInstallments(totalAmount, installmentCount);
+  const rows = installmentAmounts.map((amount, index) => ({
+    profile_id: profileId,
+    destination_profile_id: destinationProfileId,
     amount,
+    total_purchase_amount: totalAmount,
+    installment_group_id: groupId,
+    installment_number: index + 1,
+    installment_count: installmentCount,
     description,
-    category_id,
-    account_id,
+    category_id: categoryId,
+    account_id: accountId,
     transaction_type: txnType,
-    occurred_at,
+    occurred_at: addMonthsToDate(occurredAt, index),
     source: "manual",
     paid_by_user_id: userId,
-    needs_review: txnType === "expense" && !category_id,
-  }).select("id").single();
-  check(error, "Não foi possível salvar o gasto");
-  if (!transaction) fail("O lançamento não foi retornado após ser salvo.");
-  await saveTransactionSplit(supabase, transaction.id, profile_id, userId, amount, formData);
+    needs_review: txnType === "expense" && !categoryId,
+  }));
+
+  const { data: transactions, error } = await supabase.from("transactions")
+    .insert(rows).select("id,installment_number,amount").order("installment_number");
+  check(error, "Nao foi possivel salvar o gasto");
+  if (!transactions?.length) fail("O lancamento nao foi retornado apos ser salvo.");
+
+  if (allocationProfileId && splits.length) {
+    const allocations = allocateInstallmentShares(installmentAmounts, splits);
+    const splitRows = allocations.flatMap((allocation) =>
+      transactions.map((transaction, index) => ({
+        transaction_id: transaction.id,
+        profile_id: allocationProfileId,
+        debtor_user_id: allocation.userId,
+        amount: allocation.amounts[index],
+        status: "pending",
+      })).filter((row) => row.amount > 0),
+    );
+    const { error: splitError } = await supabase.from("transaction_splits").insert(splitRows);
+    if (splitError) {
+      await supabase.from("transactions").delete().in("id", transactions.map((transaction) => transaction.id));
+      check(splitError, "Nao foi possivel salvar a divisao do gasto");
+    }
+  }
 
   revalidatePath("/dashboard");
-  redirect("/dashboard");
+  revalidatePath("/extrato");
+  revalidatePath("/acertos");
+  if (destinationProfileId) revalidatePath("/casa/compras");
+  redirect(`/extrato?criado=${installmentCount}`);
 }
 
 export async function updateTransaction(formData: FormData) {
@@ -101,15 +182,17 @@ export async function updateTransaction(formData: FormData) {
   const supabase = await requireOwnedRow("transactions", id);
   const { userId } = await getContext();
   const { data: ownedTransaction, error: ownedError } = await supabase
-    .from("transactions").select("profile_id,paid_by_user_id").eq("id", id).single();
+    .from("transactions").select("profile_id,destination_profile_id,paid_by_user_id").eq("id", id).single();
   check(ownedError, "Não foi possível validar o lançamento");
   if (!ownedTransaction) fail("Lançamento não encontrado.");
   const category_id = String(formData.get("category_id") ?? "") || null;
   const txnType = transactionType(formData.get("transaction_type"));
+  const amount = parseBRL(formData.get("amount"));
+  if (amount <= 0) fail("Informe um valor maior que zero.");
   const { error } = await supabase
     .from("transactions")
     .update({
-      amount: parseBRL(formData.get("amount")),
+      amount,
       description: String(formData.get("description") ?? "").trim() || null,
       category_id,
       transaction_type: txnType,
@@ -118,14 +201,17 @@ export async function updateTransaction(formData: FormData) {
     })
     .eq("id", id);
   check(error, "Não foi possível atualizar o lançamento");
-  const { error: clearSplitError } = await supabase.from("transaction_splits").delete().eq("transaction_id", id);
-  check(clearSplitError, "Não foi possível atualizar a divisão");
-  await saveTransactionSplit(
-    supabase, id, ownedTransaction.profile_id, ownedTransaction.paid_by_user_id ?? userId,
-    parseBRL(formData.get("amount")), formData,
-  );
+  if (String(formData.get("manage_splits") ?? "") === "1") {
+    const { error: clearSplitError } = await supabase.from("transaction_splits").delete().eq("transaction_id", id);
+    check(clearSplitError, "Não foi possível atualizar a divisão");
+    await saveTransactionSplit(
+      supabase, id, ownedTransaction.destination_profile_id ?? ownedTransaction.profile_id,
+      ownedTransaction.paid_by_user_id ?? userId, amount, formData,
+    );
+  }
   revalidatePath("/extrato");
   revalidatePath("/dashboard");
+  revalidatePath("/acertos");
 }
 
 async function saveTransactionSplit(
@@ -166,6 +252,7 @@ export async function markTransactionSplitPaid(formData: FormData) {
   check(error, "Não foi possível atualizar o acerto");
   revalidatePath("/extrato");
   revalidatePath("/dashboard");
+  revalidatePath("/acertos");
 }
 
 export async function deleteTransaction(formData: FormData) {
@@ -322,24 +409,48 @@ export async function toggleBillPaid(formData: FormData) {
 export async function importTransactionsCsv(formData: FormData) {
   const profileId = String(formData.get("profile_id") ?? "");
   const supabase = await requireProfile(profileId);
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) fail("Selecione um arquivo CSV.");
-  if (file.size > 1024 * 1024) fail("O CSV deve ter no máximo 1 MB.");
+  const selected = formData.getAll("files").filter((item): item is File => item instanceof File && item.size > 0);
+  const fallback = formData.get("file");
+  const files = selected.length > 0 ? selected : fallback instanceof File && fallback.size > 0 ? [fallback] : [];
+  if (files.length === 0) fail("Selecione pelo menos um arquivo CSV.");
+  if (files.length > 60) fail("Importe no máximo 60 arquivos por vez.");
+  if (files.some((file) => file.size > 1024 * 1024)) fail("Cada CSV deve ter no máximo 1 MB.");
+  if (files.reduce((sum, file) => sum + file.size, 0) > 5 * 1024 * 1024) fail("O conjunto de CSVs deve ter no máximo 5 MB.");
 
-  const rows = parseTransactionsCsv(await file.text());
-  if (rows.length > 500) fail("Importe no máximo 500 lançamentos por vez.");
+  const rows = (await Promise.all(files.map(async (file) =>
+    parseTransactionsCsv(decodeCsvBytes(await file.arrayBuffer()), { fileName: file.name }),
+  ))).flat();
+  if (rows.length > 5000) fail("Importe no máximo 5.000 lançamentos por vez.");
 
   const [{ data: categories, error: categoryError }, { data: accounts, error: accountError }] = await Promise.all([
-    supabase.from("categories").select("id,name").eq("is_income", false),
-    supabase.from("accounts").select("id,name").eq("profile_id", profileId),
+    supabase.from("categories").select("id,name"),
+    supabase.from("accounts").select("id,name,institution").eq("profile_id", profileId),
   ]);
   check(categoryError, "Não foi possível carregar as categorias");
   check(accountError, "Não foi possível carregar as contas");
   const key = (value: string | null) => value?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim() ?? "";
   const categoryMap = new Map((categories ?? []).map((item) => [key(item.name), item.id]));
   const accountMap = new Map((accounts ?? []).map((item) => [key(item.name), item.id]));
+  const knownAccounts = [...new Map(rows.filter((row) => row.accountName && row.institution).map((row) => [key(row.accountName), row])).values()];
+  for (const row of knownAccounts) {
+    if (!row.accountName || accountMap.has(key(row.accountName))) continue;
+    const { data, error } = await supabase.from("accounts").insert({
+      profile_id: profileId,
+      name: row.accountName,
+      institution: row.institution,
+      kind: row.accountName.includes("Crédito") ? "credito" : row.accountName.includes("Débito") ? "debito" : "conta",
+    }).select("id").single();
+    check(error, `Não foi possível criar a conta ${row.accountName}`);
+    if (!data) throw new Error(`A conta ${row.accountName} foi criada sem retornar um identificador`);
+    accountMap.set(key(row.accountName), data.id);
+  }
   const payload = rows.map((row) => {
-    const categoryId = categoryMap.get(key(row.categoryName)) ?? null;
+    const categoryName = row.transactionType === "income" ? "Salário / Renda"
+      : row.transactionType === "transfer_in" ? "Transferência recebida"
+      : row.transactionType === "transfer_out" ? "Transferência enviada"
+      : row.transactionType === "card_payment" ? "Pagamento de fatura"
+      : row.categoryName;
+    const categoryId = categoryMap.get(key(categoryName)) ?? null;
     return {
       profile_id: profileId,
       amount: row.amount,
@@ -347,16 +458,56 @@ export async function importTransactionsCsv(formData: FormData) {
       occurred_at: row.occurredAt,
       category_id: categoryId,
       account_id: accountMap.get(key(row.accountName)) ?? null,
+      transaction_type: row.transactionType,
+      counterparty: row.counterparty,
+      account_label: row.accountName,
+      external_id: row.externalId,
+      import_fingerprint: row.importFingerprint,
       source: "csv" as const,
-      needs_review: !categoryId,
-      raw_text: null,
+      needs_review: row.transactionType === "expense" && !categoryId,
+      raw_text: row.rawText,
+      metadata: { importer_version: 2, institution: row.institution, signed_amount: row.signedAmount },
     };
   });
-  const { error } = await supabase.from("transactions").insert(payload);
-  check(error, "Não foi possível importar o CSV");
+  let inserted = 0;
+  for (let start = 0; start < payload.length; start += 250) {
+    const { data, error } = await supabase.from("transactions")
+      .upsert(payload.slice(start, start + 250), { onConflict: "profile_id,import_fingerprint", ignoreDuplicates: true })
+      .select("id");
+    check(error, "Não foi possível importar o CSV");
+    inserted += data?.length ?? 0;
+  }
   revalidatePath("/dashboard");
   revalidatePath("/extrato");
-  redirect(`/extrato?importados=${payload.length}`);
+  revalidatePath("/contas");
+  revalidatePath("/recorrencias");
+  redirect(`/extrato?importados=${inserted}&ignorados=${payload.length - inserted}`);
+}
+
+export async function updateAccountFinancialSettings(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  const supabase = await requireOwnedRow("accounts", id);
+  const optionalMoney = (name: string) => {
+    const raw = String(formData.get(name) ?? "").trim();
+    return raw ? parseBRL(raw) : null;
+  };
+  const optionalDay = (name: string) => {
+    const raw = String(formData.get(name) ?? "").trim();
+    if (!raw) return null;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 1 || value > 31) fail("Use um dia entre 1 e 31.");
+    return value;
+  };
+  const { error } = await supabase.from("accounts").update({
+    current_balance: optionalMoney("current_balance"),
+    balance_updated_at: new Date().toISOString(),
+    credit_limit: optionalMoney("credit_limit"),
+    statement_closing_day: optionalDay("statement_closing_day"),
+    due_day: optionalDay("due_day"),
+  }).eq("id", id);
+  check(error, "Não foi possível atualizar a conta");
+  revalidatePath("/contas");
+  revalidatePath("/dashboard");
 }
 
 export async function addGoal(formData: FormData) {
@@ -565,7 +716,21 @@ export async function inviteProfileMember(formData: FormData) {
   });
   check(error, "Não foi possível adicionar o membro");
   revalidatePath("/perfil");
-  redirect(`/perfil?secao=espacos&membro=${data === "added" ? "added" : "invited"}`);
+  redirect(`/perfil?secao=espacos&membro=${data === "member" ? "member" : "invited"}`);
+}
+
+export async function respondProfileInvitation(formData: FormData) {
+  const invitationId = String(formData.get("invitation_id") ?? "");
+  const accept = String(formData.get("decision") ?? "") === "accept";
+  if (!invitationId) fail("Convite não informado.");
+  const { supabase } = await getContext();
+  const { data, error } = await supabase.rpc("fn_respond_profile_invitation", {
+    p_invitation_id: invitationId,
+    p_accept: accept,
+  });
+  check(error, "Não foi possível responder ao convite");
+  revalidatePath("/", "layout");
+  redirect(`/dashboard?convite=${data}`);
 }
 
 export async function addFinancialAccount(formData: FormData) {

@@ -11,21 +11,22 @@ export default async function Importar() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h2 className="text-lg font-bold">Importar CSV — {active.name}</h2>
-        <p className="text-sm text-muted">Até 500 lançamentos ou 1 MB por arquivo.</p>
+        <h2 className="text-lg font-bold">Importar extratos — {active.name}</h2>
+        <p className="text-sm text-muted">Nubank, Bradesco ou CSV genérico. Arquivos repetidos são ignorados automaticamente.</p>
       </div>
       <form action={importTransactionsCsv} className="card flex flex-col gap-4">
         <input type="hidden" name="profile_id" value={active.id} />
         <div>
-          <label htmlFor="file" className="label">Arquivo CSV</label>
-          <input id="file" name="file" type="file" accept=".csv,text/csv" required className="input" />
+          <label htmlFor="files" className="label">Arquivos CSV</label>
+          <input id="files" name="files" type="file" accept=".csv,text/csv" multiple required className="input" />
         </div>
         <div className="text-xs text-muted leading-relaxed">
-          <p className="font-semibold text-foreground">Colunas obrigatórias: Data e Valor.</p>
-          <p>Opcionais: Descrição, Categoria e Conta. Aceita vírgula ou ponto e vírgula e datas DD/MM/AAAA ou AAAA-MM-DD.</p>
-          <p>Categorias e contas desconhecidas ficam vazias para revisão, sem criar cadastros automaticamente.</p>
+          <p className="font-semibold text-foreground">Você pode selecionar vários meses de uma vez.</p>
+          <p>O Porkins reconhece entrada, saída, Pix, pagamento de fatura, conta bancária e identificador da transação.</p>
+          <p>Para outros bancos, use as colunas Data e Valor; Descrição, Categoria e Conta são opcionais.</p>
+          <p>Somente gastos sem classificação ficam marcados para revisão.</p>
         </div>
-        <button className="btn">Importar lançamentos</button>
+        <button className="btn">Importar extratos</button>
       </form>
       <Link href="/extrato" className="text-sm text-brand font-semibold">← Voltar ao extrato</Link>
     </div>

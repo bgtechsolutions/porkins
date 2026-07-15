@@ -24,7 +24,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(errorUrl);
   }
 
-  await supabase.rpc("fn_accept_profile_invitations");
   const { data: existingConnection } = await createAdminClient()
     .from("gmail_connections")
     .select("profile_id")
