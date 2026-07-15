@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getContext } from "@/lib/profiles";
 import { brl } from "@/lib/format";
 import { addHouseProduct, deleteHouseProduct, markProductBought } from "../../actions";
@@ -22,17 +23,29 @@ type Product = {
   status: string;
   _overdue?: boolean;
 };
+type SharedPurchase = {
+  id: string;
+  description: string | null;
+  amount: number;
+  occurred_at: string;
+  installment_number: number;
+  installment_count: number;
+};
 
 export default async function Compras() {
   const { supabase, profiles } = await getContext();
   const casa = profiles.find((p) => p.type === "compartilhado");
   if (!casa) return <p className="text-muted">Perfil Casa não encontrado.</p>;
 
-  const { data } = await supabase
-    .from("house_products")
-    .select("*")
-    .eq("profile_id", casa.id)
-    .order("priority", { ascending: true, nullsFirst: false });
+  const [{ data }, { data: sharedTransactions }] = await Promise.all([
+    supabase.from("house_products").select("*").eq("profile_id", casa.id)
+      .order("priority", { ascending: true, nullsFirst: false }),
+    supabase.from("transactions")
+      .select("id,description,amount,occurred_at,installment_number,installment_count")
+      .eq("destination_profile_id", casa.id)
+      .eq("transaction_type", "expense")
+      .order("occurred_at", { ascending: false }),
+  ]);
 
   const all = (data ?? []) as Product[];
   const comprados = all.filter((p) => p.status === "comprado" || p.status === "presente");
@@ -40,6 +53,8 @@ export default async function Compras() {
 
   const orcadoTotal = all.reduce((s, p) => s + Number(p.budget_base ?? 0), 0);
   const gastoTotal = all.reduce((s, p) => s + Number(p.real_value ?? 0), 0);
+  const purchases = (sharedTransactions ?? []) as SharedPurchase[];
+  const sharedTotal = purchases.reduce((sum, item) => sum + Number(item.amount), 0);
 
   // Rollover: item com mês já passado "cai" no mês atual, marcado como atrasado.
   const nowNum = new Date().getMonth() + 1;
@@ -77,6 +92,24 @@ export default async function Compras() {
         <div className="card"><p className="label">Orçado</p><p className="font-bold">{brl(orcadoTotal)}</p></div>
         <div className="card"><p className="label">Comprado</p><p className="font-bold">{brl(gastoTotal)}</p></div>
         <div className="card"><p className="label">Faltam</p><p className="font-bold">{pendentes.length}</p></div>
+      </div>
+
+      <div className="card">
+        <div className="flex items-start justify-between gap-3">
+          <div><p className="font-semibold">Compras atribuídas à Casa</p><p className="text-xs text-muted">Pagas nas contas pessoais dos membros</p></div>
+          <p className="font-bold whitespace-nowrap">{brl(sharedTotal)}</p>
+        </div>
+        {purchases.length ? (
+          <div className="flex flex-col gap-2 mt-3">
+            {purchases.map((purchase) => (
+              <div key={purchase.id} className="surface-muted rounded-xl p-3 flex justify-between gap-3">
+                <div className="min-w-0"><p className="text-sm font-semibold truncate">{purchase.description ?? "Compra compartilhada"}</p><p className="text-xs text-muted">{new Date(`${purchase.occurred_at}T00:00:00`).toLocaleDateString("pt-BR")}{purchase.installment_count > 1 ? ` · ${purchase.installment_number}/${purchase.installment_count}` : ""}</p></div>
+                <p className="text-sm font-bold whitespace-nowrap">{brl(purchase.amount)}</p>
+              </div>
+            ))}
+            <Link href="/acertos" className="btn-secondary mt-1">Ver divisão e acertos</Link>
+          </div>
+        ) : <p className="text-sm text-muted mt-3">Nenhuma compra pessoal foi atribuída à Casa ainda.</p>}
       </div>
 
       {MONTHS.filter((m) => MONTH_NUM[m] >= nowNum).map((m) => {

@@ -20,6 +20,9 @@ type Txn = {
   counterparty: string | null;
   account_label: string | null;
   paid_by_user_id: string | null;
+  destination_profile_id: string | null;
+  installment_number: number;
+  installment_count: number;
   categoria: { name: string } | { name: string }[] | null;
   conta: { name: string } | { name: string }[] | null;
   divisoes: { id: string; debtor_user_id: string; amount: number; status: string }[] | null;
@@ -36,18 +39,18 @@ const TYPE_UI: Record<TransactionType, { label: string; sign: string; color: str
 export default async function Extrato({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string; tudo?: string; importados?: string; tipo?: string }>;
+  searchParams: Promise<{ mes?: string; tudo?: string; importados?: string; tipo?: string; criado?: string }>;
 }) {
-  const { supabase, active, userId } = await getContext();
+  const { supabase, active, userId, profiles } = await getContext();
   if (!active) return <p className="text-muted">Nenhum perfil.</p>;
 
-  const { mes: mesParam, tudo, importados, tipo = "todos" } = await searchParams;
+  const { mes: mesParam, tudo, importados, criado, tipo = "todos" } = await searchParams;
   const now = new Date();
   const mes = tudo ? "" : mesParam || `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
   let query = supabase
     .from("transactions")
-    .select("id,amount,description,occurred_at,category_id,needs_review,transaction_type,counterparty,account_label,paid_by_user_id,categoria:categories(name),conta:accounts(name),divisoes:transaction_splits(id,debtor_user_id,amount,status)")
-    .eq("profile_id", active.id)
+    .select("id,amount,description,occurred_at,category_id,needs_review,transaction_type,counterparty,account_label,paid_by_user_id,destination_profile_id,installment_number,installment_count,categoria:categories(name),conta:accounts(name),divisoes:transaction_splits(id,debtor_user_id,amount,status)")
+    .or(`profile_id.eq.${active.id},destination_profile_id.eq.${active.id}`)
     .order("occurred_at", { ascending: false })
     .order("created_at", { ascending: false });
 
@@ -93,6 +96,7 @@ export default async function Extrato({
       </div>
 
       {importados && <div className="status-success" role="status">{importados} lançamento(s) importado(s).</div>}
+      {criado && <div className="status-success" role="status">Compra salva{Number(criado) > 1 ? ` em ${criado} parcelas` : ""}. Os acertos já estão disponíveis para os participantes.</div>}
 
       <form method="get" className="card flex gap-2 items-end">
         <label className="flex-1">
@@ -136,8 +140,9 @@ export default async function Extrato({
             const ui = TYPE_UI[transaction.transaction_type] ?? TYPE_UI.expense;
             const category = relationName(transaction.categoria);
             const account = relationName(transaction.conta) ?? transaction.account_label;
-            const split = transaction.divisoes?.[0] ?? null;
-            const debtor = directory.find((member) => member.user_id === split?.debtor_user_id);
+            const splits = transaction.divisoes ?? [];
+            const split = splits[0] ?? null;
+            const destination = profiles.find((profile) => profile.id === transaction.destination_profile_id);
             return (
               <details key={transaction.id} className="card">
                 <summary className="flex items-center justify-between gap-3 cursor-pointer list-none">
@@ -145,17 +150,20 @@ export default async function Extrato({
                     <div className="flex items-center gap-2 mb-1">
                       <span className={ui.badge}>{ui.label}</span>
                       {transaction.needs_review && <span className="text-xs text-warning font-bold">⚠ revisar</span>}
+                      {destination && <span className="badge-neutral">Para {destination.name}</span>}
                     </div>
                     <p className="text-sm font-semibold truncate">{transaction.description || category || "Sem descrição"}</p>
                     <p className="text-xs text-muted truncate">
                       {new Date(`${transaction.occurred_at}T00:00:00`).toLocaleDateString("pt-BR")}
                       {account ? ` · ${account}` : ""}{category ? ` · ${category}` : ""}
+                      {transaction.installment_count > 1 ? ` · ${transaction.installment_number}/${transaction.installment_count}` : ""}
                     </p>
-                    {split && (
-                      <p className={`text-xs font-semibold mt-1 ${split.status === "paid" ? "text-success" : "text-info"}`}>
-                        {debtor?.display_name ?? "Outro membro"} {split.status === "paid" ? "pagou" : "deve"} {brl(split.amount)}
-                      </p>
-                    )}
+                    {splits.map((item) => {
+                      const debtor = directory.find((member) => member.user_id === item.debtor_user_id);
+                      return <p key={item.id} className={`text-xs font-semibold mt-1 ${item.status === "paid" ? "text-success" : "text-info"}`}>
+                        {debtor?.display_name ?? "Outro membro"} {item.status === "paid" ? "pagou" : "deve"} {brl(item.amount)}
+                      </p>;
+                    })}
                   </div>
                   <span className={`font-bold whitespace-nowrap ${ui.color}`}>{ui.sign}{brl(transaction.amount)}</span>
                 </summary>
@@ -174,8 +182,9 @@ export default async function Extrato({
                     <option value="">Sem categoria</option>
                     {(categories ?? []).map((categoryItem) => <option key={categoryItem.id} value={categoryItem.id}>{categoryItem.name}</option>)}
                   </select>
-                  {directory.some((member) => member.user_id !== (transaction.paid_by_user_id ?? userId)) && (
+                  {!transaction.destination_profile_id && splits.length <= 1 && directory.some((member) => member.user_id !== (transaction.paid_by_user_id ?? userId)) && (
                     <div className="grid grid-cols-2 gap-2">
+                      <input type="hidden" name="manage_splits" value="1" />
                       <select name="debtor_user_id" aria-label="Pessoa que participa da divisão" defaultValue={split?.debtor_user_id ?? ""} className="input">
                         <option value="">Não dividir</option>
                         {directory.filter((member) => member.user_id !== (transaction.paid_by_user_id ?? userId)).map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name}</option>)}
@@ -185,7 +194,7 @@ export default async function Extrato({
                   )}
                   <button className="btn">Salvar alterações</button>
                 </form>
-                {split && (
+                {split && !transaction.destination_profile_id && (
                   <form action={markTransactionSplitPaid} className="mt-2">
                     <input type="hidden" name="id" value={split.id} />
                     <input type="hidden" name="status" value={split.status === "paid" ? "pending" : "paid"} />

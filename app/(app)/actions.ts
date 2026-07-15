@@ -11,9 +11,11 @@ import { GOOGLE_SCOPES } from "@/lib/gmail/oauth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { renewGmailWatch, syncGmailConnection } from "@/lib/gmail/sync";
 import type { GmailConnection } from "@/lib/gmail/google";
+import { addMonthsToDate, allocateInstallmentShares, splitInstallments } from "@/lib/transactions";
 
 type AppSupabase = Awaited<ReturnType<typeof createClient>>;
 const TRANSACTION_TYPES = ["expense", "income", "transfer_out", "transfer_in", "card_payment"] as const;
+type SplitConfig = { userId: string; percentage: number };
 
 function transactionType(value: FormDataEntryValue | null) {
   const type = String(value ?? "expense");
@@ -26,6 +28,21 @@ function fail(message: string): never {
 
 function check(error: { message: string } | null, context: string) {
   if (error) fail(`${context}: ${error.message}`);
+}
+
+function splitConfig(formData: FormData): SplitConfig[] {
+  const raw = String(formData.get("split_config") ?? "");
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as { userId?: unknown; percentage?: unknown }[];
+    if (!Array.isArray(parsed)) fail("A divisao informada e invalida.");
+    return parsed.map((item) => ({
+      userId: String(item.userId ?? ""),
+      percentage: Number(item.percentage ?? 0),
+    })).filter((item) => item.userId && item.percentage > 0);
+  } catch {
+    fail("A divisao informada e invalida.");
+  }
 }
 
 async function requireProfile(profileId: string): Promise<AppSupabase> {
@@ -62,37 +79,101 @@ export async function logout() {
 }
 
 export async function addTransaction(formData: FormData) {
-  const profile_id = String(formData.get("profile_id") ?? "");
-  const supabase = await requireProfile(profile_id);
-  const { userId } = await getContext();
-  const amount = parseBRL(formData.get("amount"));
-  if (amount <= 0) fail("Informe um valor maior que zero.");
-  const description = String(formData.get("description") ?? "").trim() || null;
-  const category_id = String(formData.get("category_id") ?? "") || null;
-  const account_id = String(formData.get("account_id") ?? "") || null;
-  const txnType = transactionType(formData.get("transaction_type"));
-  const occurred_at =
-    String(formData.get("occurred_at") ?? "") ||
-    new Date().toISOString().slice(0, 10);
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const { userId, profiles } = await getContext();
+  const totalAmount = parseBRL(formData.get("amount"));
+  if (totalAmount <= 0) fail("Informe um valor maior que zero.");
 
-  const { data: transaction, error } = await supabase.from("transactions").insert({
-    profile_id,
+  const description = String(formData.get("description") ?? "").trim() || null;
+  const categoryId = String(formData.get("category_id") ?? "") || null;
+  const accountId = String(formData.get("account_id") ?? "") || null;
+  const destinationProfileId = String(formData.get("destination_profile_id") ?? "") || null;
+  const txnType = transactionType(formData.get("transaction_type"));
+  const occurredAt = String(formData.get("occurred_at") ?? "") || new Date().toISOString().slice(0, 10);
+  const installmentCount = Math.max(1, Math.min(60, Number(formData.get("installment_count") ?? 1) || 1));
+  const splits = splitConfig(formData);
+  const sourceProfile = profiles.find((profile) => profile.id === profileId);
+  if (!sourceProfile) fail("Perfil de origem nao encontrado.");
+  const allocationProfileId = destinationProfileId
+    ?? (sourceProfile.context_type === "personal" ? null : profileId);
+
+  if (destinationProfileId && !profiles.some((profile) => profile.id === destinationProfileId)) {
+    fail("Voce nao participa do espaco escolhido.");
+  }
+  if (splits.length && !allocationProfileId) {
+    fail("Escolha Casa, empresa ou outro espaco compartilhado para dividir o gasto.");
+  }
+  if (accountId) {
+    const { data: account } = await supabase.from("accounts")
+      .select("id").eq("id", accountId).eq("profile_id", profileId).maybeSingle();
+    if (!account) fail("A conta escolhida nao pertence ao perfil de origem.");
+  }
+
+  const splitTotal = splits.reduce((sum, item) => sum + item.percentage, 0);
+  if (splits.some((item) => !Number.isFinite(item.percentage) || item.percentage <= 0 || item.percentage > 100)) {
+    fail("Informe percentuais validos para a divisao.");
+  }
+  if (splitTotal > 100.001) fail("A soma das partes nao pode superar 100%.");
+  if (splits.some((item) => item.userId === userId)) fail("Sua parte e calculada automaticamente.");
+
+  if (allocationProfileId && splits.length) {
+    const uniqueMembers = [...new Set(splits.map((item) => item.userId))];
+    const { data: members } = await supabase.from("profile_members")
+      .select("user_id").eq("profile_id", allocationProfileId).in("user_id", uniqueMembers);
+    if ((members ?? []).length !== uniqueMembers.length) {
+      fail("Uma das pessoas escolhidas nao faz parte do espaco de destino.");
+    }
+  }
+
+  const groupId = installmentCount > 1 ? crypto.randomUUID() : null;
+  const installmentAmounts = splitInstallments(totalAmount, installmentCount);
+  const rows = installmentAmounts.map((amount, index) => ({
+    profile_id: profileId,
+    destination_profile_id: destinationProfileId,
     amount,
+    total_purchase_amount: totalAmount,
+    installment_group_id: groupId,
+    installment_number: index + 1,
+    installment_count: installmentCount,
     description,
-    category_id,
-    account_id,
+    category_id: categoryId,
+    account_id: accountId,
     transaction_type: txnType,
-    occurred_at,
+    occurred_at: addMonthsToDate(occurredAt, index),
     source: "manual",
     paid_by_user_id: userId,
-    needs_review: txnType === "expense" && !category_id,
-  }).select("id").single();
-  check(error, "Não foi possível salvar o gasto");
-  if (!transaction) fail("O lançamento não foi retornado após ser salvo.");
-  await saveTransactionSplit(supabase, transaction.id, profile_id, userId, amount, formData);
+    needs_review: txnType === "expense" && !categoryId,
+  }));
+
+  const { data: transactions, error } = await supabase.from("transactions")
+    .insert(rows).select("id,installment_number,amount").order("installment_number");
+  check(error, "Nao foi possivel salvar o gasto");
+  if (!transactions?.length) fail("O lancamento nao foi retornado apos ser salvo.");
+
+  if (allocationProfileId && splits.length) {
+    const allocations = allocateInstallmentShares(installmentAmounts, splits);
+    const splitRows = allocations.flatMap((allocation) =>
+      transactions.map((transaction, index) => ({
+        transaction_id: transaction.id,
+        profile_id: allocationProfileId,
+        debtor_user_id: allocation.userId,
+        amount: allocation.amounts[index],
+        status: "pending",
+      })).filter((row) => row.amount > 0),
+    );
+    const { error: splitError } = await supabase.from("transaction_splits").insert(splitRows);
+    if (splitError) {
+      await supabase.from("transactions").delete().in("id", transactions.map((transaction) => transaction.id));
+      check(splitError, "Nao foi possivel salvar a divisao do gasto");
+    }
+  }
 
   revalidatePath("/dashboard");
-  redirect("/dashboard");
+  revalidatePath("/extrato");
+  revalidatePath("/acertos");
+  if (destinationProfileId) revalidatePath("/casa/compras");
+  redirect(`/extrato?criado=${installmentCount}`);
 }
 
 export async function updateTransaction(formData: FormData) {
@@ -101,15 +182,17 @@ export async function updateTransaction(formData: FormData) {
   const supabase = await requireOwnedRow("transactions", id);
   const { userId } = await getContext();
   const { data: ownedTransaction, error: ownedError } = await supabase
-    .from("transactions").select("profile_id,paid_by_user_id").eq("id", id).single();
+    .from("transactions").select("profile_id,destination_profile_id,paid_by_user_id").eq("id", id).single();
   check(ownedError, "Não foi possível validar o lançamento");
   if (!ownedTransaction) fail("Lançamento não encontrado.");
   const category_id = String(formData.get("category_id") ?? "") || null;
   const txnType = transactionType(formData.get("transaction_type"));
+  const amount = parseBRL(formData.get("amount"));
+  if (amount <= 0) fail("Informe um valor maior que zero.");
   const { error } = await supabase
     .from("transactions")
     .update({
-      amount: parseBRL(formData.get("amount")),
+      amount,
       description: String(formData.get("description") ?? "").trim() || null,
       category_id,
       transaction_type: txnType,
@@ -118,14 +201,17 @@ export async function updateTransaction(formData: FormData) {
     })
     .eq("id", id);
   check(error, "Não foi possível atualizar o lançamento");
-  const { error: clearSplitError } = await supabase.from("transaction_splits").delete().eq("transaction_id", id);
-  check(clearSplitError, "Não foi possível atualizar a divisão");
-  await saveTransactionSplit(
-    supabase, id, ownedTransaction.profile_id, ownedTransaction.paid_by_user_id ?? userId,
-    parseBRL(formData.get("amount")), formData,
-  );
+  if (String(formData.get("manage_splits") ?? "") === "1") {
+    const { error: clearSplitError } = await supabase.from("transaction_splits").delete().eq("transaction_id", id);
+    check(clearSplitError, "Não foi possível atualizar a divisão");
+    await saveTransactionSplit(
+      supabase, id, ownedTransaction.destination_profile_id ?? ownedTransaction.profile_id,
+      ownedTransaction.paid_by_user_id ?? userId, amount, formData,
+    );
+  }
   revalidatePath("/extrato");
   revalidatePath("/dashboard");
+  revalidatePath("/acertos");
 }
 
 async function saveTransactionSplit(
@@ -166,6 +252,7 @@ export async function markTransactionSplitPaid(formData: FormData) {
   check(error, "Não foi possível atualizar o acerto");
   revalidatePath("/extrato");
   revalidatePath("/dashboard");
+  revalidatePath("/acertos");
 }
 
 export async function deleteTransaction(formData: FormData) {
@@ -565,7 +652,21 @@ export async function inviteProfileMember(formData: FormData) {
   });
   check(error, "Não foi possível adicionar o membro");
   revalidatePath("/perfil");
-  redirect(`/perfil?secao=espacos&membro=${data === "added" ? "added" : "invited"}`);
+  redirect(`/perfil?secao=espacos&membro=${data === "member" ? "member" : "invited"}`);
+}
+
+export async function respondProfileInvitation(formData: FormData) {
+  const invitationId = String(formData.get("invitation_id") ?? "");
+  const accept = String(formData.get("decision") ?? "") === "accept";
+  if (!invitationId) fail("Convite não informado.");
+  const { supabase } = await getContext();
+  const { data, error } = await supabase.rpc("fn_respond_profile_invitation", {
+    p_invitation_id: invitationId,
+    p_accept: accept,
+  });
+  check(error, "Não foi possível responder ao convite");
+  revalidatePath("/", "layout");
+  redirect(`/dashboard?convite=${data}`);
 }
 
 export async function addFinancialAccount(formData: FormData) {
