@@ -786,3 +786,114 @@ export async function deleteGmailRoute(formData: FormData) {
   check(error, "Não foi possível excluir a regra");
   revalidatePath("/perfil");
 }
+
+async function requireBusinessProfile(profileId: string): Promise<AppSupabase> {
+  const supabase = await requireProfile(profileId);
+  const { profiles } = await getContext();
+  if (profiles.find((profile) => profile.id === profileId)?.context_type !== "business") fail("Este recurso é exclusivo de espaços empresariais.");
+  return supabase;
+}
+
+export async function addBusinessClient(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireBusinessProfile(profileId);
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) fail("Informe o nome do cliente.");
+  const { error } = await supabase.from("business_clients").insert({
+    profile_id: profileId, name,
+    tax_id: String(formData.get("tax_id") ?? "").trim() || null,
+    email: String(formData.get("email") ?? "").trim() || null,
+    notes: String(formData.get("notes") ?? "").trim() || null,
+  });
+  check(error, "Não foi possível cadastrar o cliente");
+  revalidatePath("/empresa"); revalidatePath("/empresa/clientes");
+}
+
+export async function addBusinessContract(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireBusinessProfile(profileId);
+  const clientId = String(formData.get("client_id") ?? "");
+  const code = String(formData.get("code") ?? "").trim();
+  const revenueType = String(formData.get("revenue_type") ?? "recurring");
+  if (!clientId || !code || !["implementation", "recurring"].includes(revenueType)) fail("Preencha cliente, identificação e tipo do contrato.");
+  const { error } = await supabase.from("business_contracts").insert({
+    profile_id: profileId, client_id: clientId, code, revenue_type: revenueType,
+    total_amount: parseBRL(formData.get("total_amount")) || null,
+    monthly_amount: parseBRL(formData.get("monthly_amount")) || null,
+    installment_count: Number(formData.get("installment_count") ?? 0) || null,
+    start_date: String(formData.get("start_date") ?? "") || null,
+    end_date: String(formData.get("end_date") ?? "") || null,
+    notes: String(formData.get("notes") ?? "").trim() || null,
+  });
+  check(error, "Não foi possível cadastrar o contrato");
+  revalidatePath("/empresa"); revalidatePath("/empresa/clientes");
+}
+
+export async function addBusinessReceivable(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireBusinessProfile(profileId);
+  const clientId = String(formData.get("client_id") ?? "");
+  const amount = parseBRL(formData.get("amount"));
+  const dueDate = String(formData.get("due_date") ?? "");
+  const competence = String(formData.get("competence_month") ?? "");
+  const description = String(formData.get("description") ?? "").trim();
+  if (!clientId || amount <= 0 || !dueDate || !competence || !description) fail("Preencha cliente, competência, vencimento, descrição e valor.");
+  const { error } = await supabase.from("business_receivables").insert({
+    profile_id: profileId, client_id: clientId,
+    contract_id: String(formData.get("contract_id") ?? "") || null,
+    revenue_type: String(formData.get("revenue_type") ?? "recurring"),
+    description, competence_month: `${competence.slice(0, 7)}-01`, due_date: dueDate, amount,
+    installment_number: Number(formData.get("installment_number") ?? 0) || null,
+    installment_count: Number(formData.get("installment_count") ?? 0) || null,
+    provider: String(formData.get("provider") ?? "").trim() || null,
+  });
+  check(error, "Não foi possível criar a conta a receber");
+  revalidatePath("/empresa"); revalidatePath("/empresa/clientes");
+}
+
+export async function markBusinessReceivablePaid(formData: FormData) {
+  const receivableId = String(formData.get("receivable_id") ?? "");
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireBusinessProfile(profileId);
+  const { error } = await supabase.rpc("fn_mark_business_receivable_paid", {
+    p_receivable_id: receivableId,
+    p_paid_at: String(formData.get("paid_at") ?? "") || new Date().toISOString().slice(0, 10),
+    p_fee_amount: parseBRL(formData.get("fee_amount")),
+    p_tax_amount: parseBRL(formData.get("tax_amount")),
+    p_direct_cost_amount: parseBRL(formData.get("direct_cost_amount")),
+    p_transaction_id: String(formData.get("transaction_id") ?? "") || null,
+  });
+  check(error, "Não foi possível confirmar o recebimento");
+  revalidatePath("/empresa"); revalidatePath("/empresa/clientes"); revalidatePath("/empresa/caixa"); revalidatePath("/empresa/socios");
+}
+
+export async function saveBusinessAllocationPolicy(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireBusinessProfile(profileId);
+  const userIds = formData.getAll("partner_user_id").map(String);
+  const percentages = userIds.map((id) => Number(formData.get(`partner_percentage_${id}`) ?? 0) / 100);
+  const companyPercentage = Number(formData.get("company_percentage") ?? 0) / 100;
+  const total = companyPercentage + percentages.reduce((sum, value) => sum + value, 0);
+  if (Math.abs(total - 1) > 0.00001) fail("Empresa e sócios precisam somar exatamente 100%.");
+  const { error } = await supabase.rpc("fn_save_business_allocation_policy", {
+    p_profile_id: profileId,
+    p_revenue_type: String(formData.get("revenue_type") ?? "recurring"),
+    p_calculation_base: String(formData.get("calculation_base") ?? "gross"),
+    p_company_percentage: companyPercentage,
+    p_partner_user_ids: userIds,
+    p_partner_percentages: percentages,
+  });
+  check(error, "Não foi possível salvar a regra de distribuição");
+  revalidatePath("/empresa"); revalidatePath("/empresa/socios");
+}
+
+export async function markBusinessPayablePaid(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const id = String(formData.get("payable_id") ?? "");
+  const supabase = await requireBusinessProfile(profileId);
+  const { error } = await supabase.from("business_partner_payables").update({
+    status: "paid", paid_at: String(formData.get("paid_at") ?? "") || new Date().toISOString().slice(0, 10),
+  }).eq("id", id).eq("profile_id", profileId);
+  check(error, "Não foi possível confirmar o repasse");
+  revalidatePath("/empresa"); revalidatePath("/empresa/socios");
+}
