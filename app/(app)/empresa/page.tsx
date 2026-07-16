@@ -16,7 +16,7 @@ export default async function Empresa() {
     supabase.from("business_receivables").select("id,revenue_type,description,amount,due_date,status,client_id").eq("profile_id", active.id).order("due_date"),
     supabase.from("business_partner_payables").select("id,amount,status,user_id").eq("profile_id", active.id),
     supabase.from("business_clients").select("id,name").eq("profile_id", active.id).eq("active", true),
-    supabase.from("business_contracts").select("id,revenue_type,monthly_amount,status").eq("profile_id", active.id).eq("status", "active"),
+    supabase.from("business_contracts").select("id,revenue_type,monthly_amount,status,start_date,end_date").eq("profile_id", active.id).eq("status", "active"),
     supabase.from("goals").select("current_amount").eq("profile_id", active.id).neq("status", "concluida"),
     supabase.rpc("fn_profile_member_directory", { p_profile_id: active.id }),
   ]);
@@ -24,7 +24,8 @@ export default async function Empresa() {
   const names=new Map((clients ?? []).map((c)=>[c.id,c.name])); const memberNames=new Map(((directory ?? []) as Member[]).map((m)=>[m.user_id,m.display_name]));
   const paid=(type:string)=>rows.filter(r=>r.status==="paid"&&r.revenue_type===type).reduce((s,r)=>s+Number(r.amount),0);
   const pending=rows.filter(r=>r.status==="pending"||r.status==="overdue");
-  const mrr=(contracts ?? []).filter(c=>c.revenue_type==="recurring").reduce((s,c)=>s+Number(c.monthly_amount??0),0);
+  const today = new Date().toISOString().slice(0, 10);
+  const mrr=(contracts ?? []).filter(c=>c.revenue_type==="recurring"&&(!c.start_date||c.start_date<=today)&&(!c.end_date||c.end_date>=today)).reduce((s,c)=>s+Number(c.monthly_amount??0),0);
   const partnerPending=obligations.filter(p=>p.status==="pending").reduce((s,p)=>s+Number(p.amount),0);
   const reserves=(goals ?? []).reduce((s,g)=>s+Number(g.current_amount),0);
   return <div className="flex flex-col gap-4">
