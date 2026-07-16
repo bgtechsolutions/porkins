@@ -71,6 +71,7 @@ export default async function Perfil({
   const googleEmail = String(googleIdentity?.identity_data?.email ?? gmail?.gmail_email ?? "");
   const pctOf = (bucket: string) => Math.round(Number(rules.find((rule) => rule.bucket === bucket)?.percentage ?? 0) * 100);
   const isShared = active.context_type !== "personal";
+  const isBusiness = active.context_type === "business";
 
   return (
     <div className="flex flex-col gap-4">
@@ -82,7 +83,7 @@ export default async function Perfil({
       <nav className="grid grid-cols-3 gap-2" aria-label="Seções do perfil">
         <Tab href="/perfil?secao=conta" active={section === "conta"} label="Minha conta" />
         <Tab href="/perfil?secao=espacos" active={section === "espacos"} label="Espaços" />
-        <Tab href="/perfil?secao=planejamento" active={section === "planejamento"} label="Planejamento" />
+        <Tab href={isBusiness ? "/empresa" : "/perfil?secao=planejamento"} active={!isBusiness && section === "planejamento"} label={isBusiness ? "Empresa" : "Planejamento"} />
       </nav>
 
       <Status params={params} />

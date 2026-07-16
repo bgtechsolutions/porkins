@@ -51,7 +51,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         ))}
         {children}
       </main>
-      <BottomNav showHouse={profiles.some((profile) => profile.context_type === "household")} />
+      <BottomNav contextType={active?.context_type ?? "personal"} />
     </div>
   );
 }

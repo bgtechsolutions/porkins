@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getContext } from "@/lib/profiles";
 import { brl, pct } from "@/lib/format";
 
@@ -13,6 +14,7 @@ export default async function Dashboard({
 }) {
   const { supabase, active } = await getContext();
   if (!active) return <p className="text-muted">Nenhum perfil encontrado.</p>;
+  if (active.context_type === "business") redirect("/empresa");
   const params = await searchParams;
 
   const isPersonal = active.context_type === "personal";
