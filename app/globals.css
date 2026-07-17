@@ -444,3 +444,191 @@ button:disabled {
 .business-grid > div { border: 1px solid var(--border); border-radius: 0.85rem; padding: 0.8rem; }
 .business-grid dt { color: var(--muted); font-size: 0.72rem; }
 .business-grid dd { margin-top: 0.2rem; font-size: 1rem; font-weight: 750; letter-spacing: -0.02em; }
+/* Progressive disclosure keeps dense finance data available without crowding the first view. */
+.disclosure-card > summary,
+.product-row > summary {
+  display: flex;
+  min-height: 3.75rem;
+  list-style: none;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.disclosure-card > summary::-webkit-details-marker,
+.product-row > summary::-webkit-details-marker,
+.inline-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.disclosure-card > summary::after,
+.product-row > summary::after {
+  content: "Abrir";
+  flex: 0 0 auto;
+  color: var(--brand);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.disclosure-card[open] > summary::after,
+.product-row[open] > summary::after {
+  content: "Fechar";
+}
+
+.summary-value {
+  margin-left: auto;
+  color: var(--foreground);
+  font-size: 0.82rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.disclosure-content {
+  margin-top: 0.8rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.8rem;
+}
+
+.inline-disclosure {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.inline-disclosure > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.floating-form {
+  position: absolute;
+  z-index: 30;
+  top: 3rem;
+  right: 0;
+  width: min(22rem, calc(100vw - 2rem));
+  box-shadow: 0 18px 50px rgb(16 24 40 / 0.18);
+}
+
+.compact-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--surface);
+}
+
+.compact-metrics > div {
+  min-width: 0;
+  padding: 0.8rem;
+}
+
+.compact-metrics > div + div {
+  border-left: 1px solid var(--border);
+}
+
+.compact-metrics dt {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.compact-metrics dd {
+  overflow: hidden;
+  margin-top: 0.15rem;
+  font-size: 0.9rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-switcher {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+  border-radius: 0.9rem;
+  background: var(--surface-muted);
+  padding: 0.3rem;
+}
+
+.view-chip {
+  display: flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border-radius: 0.7rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 750;
+  text-align: center;
+}
+
+.view-chip span {
+  min-width: 1.25rem;
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 0.1rem 0.3rem;
+  font-size: 0.65rem;
+}
+
+.view-chip-active {
+  background: var(--surface);
+  color: var(--brand);
+  box-shadow: var(--shadow);
+}
+
+.list-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.compact-list {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--surface);
+}
+
+.compact-row,
+.product-row {
+  padding: 0 1rem;
+}
+
+.compact-row {
+  display: flex;
+  min-height: 4rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.compact-row + .compact-row,
+.product-row + .product-row,
+.compact-row + .product-row,
+.product-row + .compact-row {
+  border-top: 1px solid var(--border);
+}
+
+.product-details {
+  border-top: 1px solid var(--border);
+  padding: 0.8rem 0 1rem;
+}
+
+.product-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.product-meta dt {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.product-meta dd {
+  margin-top: 0.1rem;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
