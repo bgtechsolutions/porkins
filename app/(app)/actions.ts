@@ -897,3 +897,17 @@ export async function markBusinessPayablePaid(formData: FormData) {
   check(error, "Não foi possível confirmar o repasse");
   revalidatePath("/empresa"); revalidatePath("/empresa/socios");
 }
+export async function markProfileTransactionsReviewed(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const { error } = await supabase.from("transactions")
+    .update({ needs_review: false })
+    .eq("profile_id", profileId)
+    .eq("needs_review", true)
+    .eq("status", "confirmed");
+  check(error, "Não foi possível confirmar os lançamentos");
+  revalidatePath("/dashboard");
+  revalidatePath("/extrato");
+  const next = formData.get("next") === "/empresa" ? "/empresa" : "/dashboard";
+  redirect(`${next}?revisao=ok`);
+}
