@@ -25,7 +25,7 @@ type Account = {
   institution: string | null;
   email_aliases: string[] | null;
 };
-type Category = { id: string; name: string; is_income: boolean };
+type Category = { id: string; name: string; is_income: boolean; profile_id?: string | null };
 
 const key = (value: string | null | undefined) =>
   (value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
@@ -132,7 +132,7 @@ async function importMessage(connection: GmailConnection, accessToken: string, m
 
     const [{ data: routes }, { data: categories }] = await Promise.all([
       admin.from("gmail_import_routes").select("id,profile_id,account_id,match_label,is_default,priority").eq("user_id", connection.user_id).eq("active", true),
-      admin.from("categories").select("id,name,is_income"),
+      admin.from("categories").select("id,name,is_income,profile_id").eq("archived", false),
     ]);
     const route = chooseRoute((routes ?? []) as Route[], parsed, connection.profile_id);
     const { data: accounts } = await admin
@@ -141,7 +141,7 @@ async function importMessage(connection: GmailConnection, accessToken: string, m
       .eq("profile_id", route.profile_id)
       .eq("active", true);
     const account = chooseAccount((accounts ?? []) as Account[], route, parsed);
-    const allCategories = (categories ?? []) as Category[];
+    const allCategories = ((categories ?? []) as Category[]).filter((category) => !category.profile_id || category.profile_id === route.profile_id);
     const hinted = parsed.categoryHint
       ? allCategories.find((category) => key(category.name) === key(parsed.categoryHint))?.id ?? null
       : null;

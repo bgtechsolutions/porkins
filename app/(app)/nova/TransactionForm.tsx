@@ -21,6 +21,7 @@ export function TransactionForm({
   categories,
   spaces,
   membersBySpace,
+  splitRulesBySpace,
   today,
 }: {
   profileId: string;
@@ -30,6 +31,7 @@ export function TransactionForm({
   categories: Option[];
   spaces: Space[];
   membersBySpace: Record<string, Member[]>;
+  splitRulesBySpace: Record<string, Record<string, number>>;
   today: string;
 }) {
   const [destination, setDestination] = useState("");
@@ -130,7 +132,7 @@ export function TransactionForm({
           O pagamento continua em {profileName}. Escolha um espaço para atribuir o gasto à Casa ou à empresa.
         </p>
         <select name="destination_profile_id" aria-label="Espaço beneficiado pela compra" className="input"
-          value={destination} onChange={(event) => { setDestination(event.target.value); setShares({}); }}>
+          value={destination} onChange={(event) => { const next = event.target.value; setDestination(next); setShares(splitRulesBySpace[next] ?? {}); }}>
           <option value="">Somente para mim</option>
           {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
         </select>

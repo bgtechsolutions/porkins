@@ -67,7 +67,7 @@ export default async function Extrato({
 
   const [{ data: txns }, { data: categories }, { data: members }] = await Promise.all([
     query,
-    supabase.from("categories").select("id,name,is_income").order("name"),
+    supabase.from("categories").select("id,name,is_income").or(`profile_id.is.null,profile_id.eq.${active.id}`).eq("archived", false).order("name"),
     supabase.rpc("fn_profile_member_directory", { p_profile_id: active.id }),
   ]);
   const rows = (txns ?? []) as Txn[];
