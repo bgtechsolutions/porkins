@@ -911,3 +911,131 @@ export async function markProfileTransactionsReviewed(formData: FormData) {
   const next = formData.get("next") === "/empresa" ? "/empresa" : "/dashboard";
   redirect(`${next}?revisao=ok`);
 }
+
+export async function saveProfileUserSettings(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const { userId } = await getContext();
+  const enabled = new Set(formData.getAll("dashboard_section").map(String));
+  const requestedTheme = String(formData.get("theme") ?? "system");
+  const { error } = await supabase.from("profile_user_settings").upsert({
+    profile_id: profileId, user_id: userId,
+    dashboard_sections: Object.fromEntries(["attention", "upcoming", "planning", "goals", "context"].map((key) => [key, enabled.has(key)])),
+    objectives: formData.getAll("objective").map(String).filter(Boolean),
+    theme: ["system", "light", "dark"].includes(requestedTheme) ? requestedTheme : "system",
+    hide_values: String(formData.get("hide_values") ?? "") === "1", updated_at: new Date().toISOString(),
+  }, { onConflict: "profile_id,user_id" });
+  check(error, "Nao foi possivel salvar suas preferencias");
+  revalidatePath("/", "layout");
+  redirect("/mais/configuracoes?salvo=1");
+}
+
+export async function addCustomCategory(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const { userId } = await getContext();
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) fail("Informe o nome da categoria.");
+  const isIncome = String(formData.get("kind") ?? "expense") === "income";
+  const { error } = await supabase.from("categories").insert({
+    profile_id: profileId, name, bucket: isIncome ? "renda" : String(formData.get("bucket") ?? "nao_obrig"),
+    is_income: isIncome, color: String(formData.get("color") ?? "#64748b"), created_by: userId,
+  });
+  check(error, "Nao foi possivel criar a categoria");
+  revalidatePath("/categorias");
+}
+
+export async function archiveCustomCategory(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const { error } = await supabase.from("categories").update({ archived: true })
+    .eq("id", String(formData.get("id") ?? "")).eq("profile_id", profileId);
+  check(error, "Nao foi possivel arquivar a categoria");
+  revalidatePath("/categorias");
+}
+
+export async function createProfileTransfer(formData: FormData) {
+  const sourceId = String(formData.get("source_profile_id") ?? "");
+  const destinationId = String(formData.get("destination_profile_id") ?? "");
+  if (!sourceId || !destinationId || sourceId === destinationId) fail("Escolha dois espacos diferentes.");
+  const supabase = await requireProfile(sourceId);
+  await requireProfile(destinationId);
+  const amount = parseBRL(formData.get("amount"));
+  if (amount <= 0) fail("Informe um valor maior que zero.");
+  const occurredAt = String(formData.get("occurred_at") ?? "") || new Date().toISOString().slice(0, 10);
+  const description = String(formData.get("description") ?? "Transferencia entre espacos").trim();
+  const transferGroupId = crypto.randomUUID();
+  const { error } = await supabase.from("transactions").insert([
+    { profile_id: sourceId, destination_profile_id: destinationId, amount, description, occurred_at: occurredAt, transaction_type: "transfer_out", source: "manual", transfer_group_id: transferGroupId },
+    { profile_id: destinationId, destination_profile_id: sourceId, amount, description, occurred_at: occurredAt, transaction_type: "transfer_in", source: "manual", transfer_group_id: transferGroupId },
+  ]);
+  check(error, "Nao foi possivel transferir");
+  revalidatePath("/dashboard"); revalidatePath("/extrato");
+  redirect("/extrato?transferencia=1");
+}
+
+export async function addFinancialAsset(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const name = String(formData.get("name") ?? "").trim();
+  const currentValue = parseBRL(formData.get("current_value"));
+  if (!name || currentValue < 0) fail("Preencha o bem e o valor atual.");
+  const { error } = await supabase.from("financial_assets").insert({
+    profile_id: profileId, name, asset_type: String(formData.get("asset_type") ?? "other"),
+    current_value: currentValue, liability_balance: parseBRL(formData.get("liability_balance")),
+    ownership_percentage: Math.max(0.01, Math.min(100, Number(formData.get("ownership_percentage") ?? 100))) / 100,
+    notes: String(formData.get("notes") ?? "").trim() || null,
+  });
+  check(error, "Nao foi possivel cadastrar o patrimonio");
+  revalidatePath("/patrimonio");
+}
+
+export async function deleteFinancialAsset(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const { error } = await supabase.from("financial_assets").delete()
+    .eq("id", String(formData.get("id") ?? "")).eq("profile_id", profileId);
+  check(error, "Nao foi possivel remover o item");
+  revalidatePath("/patrimonio");
+}
+
+export async function joinProfileByCode(formData: FormData) {
+  const { supabase } = await getContext();
+  const { data, error } = await supabase.rpc("fn_join_profile_by_code", { p_code: String(formData.get("code") ?? "") });
+  check(error, "Nao foi possivel entrar no espaco");
+  if (data) (await cookies()).set(ACTIVE_COOKIE, String(data), { path: "/", maxAge: 31536000 });
+  revalidatePath("/", "layout");
+  redirect("/familia?entrou=1");
+}
+
+export async function regenerateProfileJoinCode(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const { error } = await supabase.rpc("fn_regenerate_profile_join_code", { p_profile_id: profileId });
+  check(error, "Nao foi possivel renovar o codigo");
+  revalidatePath("/familia");
+}
+
+export async function manageProfileMember(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const { error } = await supabase.rpc("fn_manage_profile_member", {
+    p_profile_id: profileId, p_user_id: String(formData.get("user_id") ?? ""),
+    p_action: String(formData.get("action_type") ?? "member"),
+  });
+  check(error, "Nao foi possivel alterar o membro");
+  revalidatePath("/familia");
+}
+
+export async function saveProfileSplitRules(formData: FormData) {
+  const profileId = String(formData.get("profile_id") ?? "");
+  const supabase = await requireProfile(profileId);
+  const rows = formData.getAll("member_user_id").map(String).map((userId) => ({
+    profile_id: profileId, user_id: userId,
+    percentage: Number(formData.get(`percentage_${userId}`) ?? 0) / 100, updated_at: new Date().toISOString(),
+  }));
+  if (Math.abs(rows.reduce((sum, row) => sum + row.percentage, 0) - 1) > 0.0001) fail("A divisao precisa somar 100%.");
+  const { error } = await supabase.from("profile_split_rules").upsert(rows, { onConflict: "profile_id,user_id" });
+  check(error, "Nao foi possivel salvar a divisao padrao");
+  revalidatePath("/familia");
+}

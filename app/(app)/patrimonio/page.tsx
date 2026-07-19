@@ -1,0 +1,18 @@
+import { brl } from "@/lib/format";
+import { getContext } from "@/lib/profiles";
+import { addFinancialAsset, deleteFinancialAsset } from "../actions";
+
+type Asset = { id: string; name: string; asset_type: string; current_value: number; liability_balance: number; ownership_percentage: number; notes: string | null };
+const types: Record<string, string> = { cash: "Dinheiro", investment: "Investimento", vehicle: "Veículo", property: "Imóvel", business: "Empresa", other: "Outro" };
+export default async function AssetsPage() {
+  const { supabase, active } = await getContext();
+  if (!active) return null;
+  const { data } = await supabase.from("financial_assets").select("id,name,asset_type,current_value,liability_balance,ownership_percentage,notes").eq("profile_id", active.id).eq("active", true).order("created_at");
+  const assets = (data ?? []) as Asset[];
+  const gross = assets.reduce((sum, row) => sum + Number(row.current_value) * Number(row.ownership_percentage), 0);
+  const liabilities = assets.reduce((sum, row) => sum + Number(row.liability_balance) * Number(row.ownership_percentage), 0);
+  return <div className="flex flex-col gap-4"><header><p className="eyebrow">Visão patrimonial</p><h1 className="page-title">Patrimônio</h1><p className="text-sm text-muted mt-1">Valores manuais e transparentes, sem prometer cotação automática.</p></header><section className="hero-card"><p className="eyebrow">Patrimônio líquido</p><p className="hero-value" data-money>{brl(gross - liabilities)}</p><dl className="metric-strip mt-4"><div><dt>Bens</dt><dd data-money>{brl(gross)}</dd></div><div><dt>Dívidas</dt><dd data-money>{brl(liabilities)}</dd></div><div><dt>Itens</dt><dd>{assets.length}</dd></div></dl></section>
+    <details className="card disclosure-card"><summary><span><strong className="block text-sm">Adicionar item</strong><small className="text-muted">Bem, investimento ou participação</small></span></summary><form action={addFinancialAsset} className="disclosure-content grid gap-3"><input type="hidden" name="profile_id" value={active.id} /><input className="input" name="name" placeholder="Nome" required /><select className="input" name="asset_type">{Object.entries(types).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><div className="grid grid-cols-2 gap-2"><input className="input" name="current_value" inputMode="decimal" placeholder="Valor atual" required /><input className="input" name="liability_balance" inputMode="decimal" placeholder="Dívida em aberto" /></div><input className="input" name="ownership_percentage" type="number" min="1" max="100" defaultValue="100" placeholder="Sua parte (%)" /><textarea className="input" name="notes" placeholder="Observação" /><button className="btn">Cadastrar</button></form></details>
+    <section className="compact-list">{assets.length ? assets.map((row) => <div className="compact-row" key={row.id}><span><strong className="block text-sm">{row.name}</strong><small className="text-muted">{types[row.asset_type]} · {Math.round(Number(row.ownership_percentage) * 100)}% seu</small></span><span className="text-right"><strong className="block text-sm" data-money>{brl((Number(row.current_value) - Number(row.liability_balance)) * Number(row.ownership_percentage))}</strong><form action={deleteFinancialAsset}><input type="hidden" name="profile_id" value={active.id} /><input type="hidden" name="id" value={row.id} /><button className="quiet-action">Remover</button></form></span></div>) : <p className="empty-calm text-sm text-muted">Nenhum patrimônio cadastrado.</p>}</section>
+  </div>;
+}
