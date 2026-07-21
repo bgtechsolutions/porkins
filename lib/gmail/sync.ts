@@ -200,15 +200,65 @@ export async function syncGmailConnection(connection: GmailConnection) {
   }
 }
 
+export async function enqueueGmailSync(userId: string, historyId: string, messageId: string) {
+  const admin = createAdminClient();
+  const { data, error } = await admin.rpc("enqueue_gmail_sync", {
+    target_user_id: userId,
+    incoming_history_id: historyId,
+    incoming_message_id: messageId,
+  });
+  if (error) throw error;
+  return data === true;
+}
+
+export async function processQueuedGmailSync(userId: string) {
+  const admin = createAdminClient();
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const { data, error } = await admin
+        .from("gmail_connections")
+        .select("*")
+        .eq("user_id", userId)
+        .single();
+      if (error) throw error;
+      const targetHistoryId = data.pending_history_id as string | null;
+      if (!targetHistoryId) break;
+
+      await syncGmailConnection(data as GmailConnection);
+      const { data: cleared, error: clearError } = await admin
+        .from("gmail_connections")
+        .update({
+          last_history_id: targetHistoryId,
+          pending_history_id: null,
+          sync_lock_until: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId)
+        .eq("pending_history_id", targetHistoryId)
+        .select("user_id")
+        .maybeSingle();
+      if (clearError) throw clearError;
+      if (cleared) break;
+    }
+  } finally {
+    await admin
+      .from("gmail_connections")
+      .update({ sync_lock_until: null, updated_at: new Date().toISOString() })
+      .eq("user_id", userId);
+  }
+}
+
 export async function renewGmailWatch(connection: GmailConnection) {
   const admin = createAdminClient();
   const accessToken = await getAccessToken(decryptToken(connection.encrypted_refresh_token));
   const watch = await startGmailWatch(accessToken);
   await admin.from("gmail_connections").update({
-    last_history_id: watch.historyId,
     watch_expiration: new Date(Number(watch.expiration)).toISOString(),
     last_error: null,
     updated_at: new Date().toISOString(),
   }).eq("user_id", connection.user_id);
+  await admin.from("gmail_connections").update({
+    last_history_id: watch.historyId,
+  }).eq("user_id", connection.user_id).is("last_history_id", null);
   return watch;
 }
